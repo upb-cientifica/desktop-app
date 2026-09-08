@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: compilar y probar (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar que existe codigo fuente
+        shell: bash
+        run: |
+          n=$(find . -path ./.git -prune -o -type f \
+                \( -name '*.java' -o -name '*.go' -o -name '*.ts' -o -name '*.cs' -o -name '*.rs' \) -print | wc -l)
+          if [ "$n" -eq 0 ]; then
+            echo '::error::desktop-app no contiene codigo fuente. El enunciado exige clientes nativos'
+            echo '::error::para Windows y Linux (CT-803 / E8-T3). Esta CI se pone en verde cuando el cliente exista.'
+            exit 1
+          fi
+
+      - name: Instalar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Compilar
+        shell: bash
+        run: ./run.sh build
+
+      - name: Pruebas
+        shell: bash
+        run: ./run.sh test
