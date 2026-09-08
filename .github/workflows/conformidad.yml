@@ -1,0 +1,68 @@
+# Puerta de conformidad del sistema distribuido.
+#
+# La suite prueba el sistema COMPLETO, no este repositorio aislado: levanta los
+# servicios como procesos y les habla por HTTP/gRPC/TCP. Por eso cada repositorio
+# monta el arbol entero y ejecuta la misma suite, con ESTE repositorio en la
+# revision que se esta proponiendo.
+#
+# Una prueba en rojo que no este en conformance/BASELINE.txt es una regresion y
+# la suite sale con codigo 1. La linea base solo encoge; ver conformance/README.md.
+name: Conformidad
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  ORG: ${{ vars.ORG_UPB || github.repository_owner }}
+
+jobs:
+  conformidad:
+    name: suite de conformidad
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Traer este repositorio
+        uses: actions/checkout@v4
+        with:
+          path: arbol/${{ github.event.repository.name }}
+
+      - name: Traer los repositorios hermanos y la suite
+        shell: bash
+        run: |
+          set -eu
+          este='${{ github.event.repository.name }}'
+          for r in conformance contratos comun Servicio-usuarios shared-file file-sync file-storage service-bus \
+                   hpc-cluster streaming photo-album monitoring mobile-bff web-app mobile-app desktop-app; do
+            [ "$r" = "$este" ] && continue
+            git clone --depth 1 "https://github.com/${ORG}/${r}.git" "arbol/$r"
+          done
+
+      - name: Instalar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Instalar Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Instalar herramientas del entorno
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg openmpi-bin php-cli
+
+      - name: Ejecutar la suite
+        run: ./arbol/conformance/run.sh
+
+      - name: Pruebas de conformidad de los modulos Go
+        working-directory: arbol/conformance/go
+        run: go test ./...
+
+      - name: Publicar el informe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformidad-${{ github.sha }}
+          path: arbol/conformance/ULTIMO-RESULTADO.md
