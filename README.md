@@ -32,9 +32,12 @@ Requisitos: **Go ≥ 1.24**. En macOS bastan las Command Line Tools de Xcode; en
 Linux hacen falta las cabeceras de OpenGL y X11 que pide Fyne.
 
 ```bash
-go build -o bin/upb-escritorio ./cmd/upb-escritorio
-./bin/upb-escritorio
+make build && ./bin/upb-escritorio
 ```
+
+Fyne dibuja con OpenGL a través de cgo, así que **cada sistema se compila en su
+propio sistema**: el ejecutable de Windows se hace en Windows y el de Linux en
+Linux. No hay contenedores de por medio.
 
 Por defecto apunta al despliegue del CCA. Para probar contra otro entorno:
 
@@ -61,8 +64,30 @@ internal/
   config/    direcciones y carpeta de datos
   bus/       cliente del Service Bus (usuarios, archivos, …) y tipos del JSON
   sesion/    sesión, refresco silencioso y persistencia del refresco
+  sincro/    cliente gRPC de File Sync, motor de sincronización y horarios
   ui/        ventana: entrada, marco con menú y vistas
+proto/       copia del contrato de File Sync (make proto regenera gen/)
+gen/         stubs de gRPC generados
 ```
+
+## Sincronización
+
+Una carpeta del equipo se mantiene igual que en el servidor. El equipo se
+registra una vez (queda un `.filesync-state.json` dentro de la carpeta, el
+mismo que usa el cliente de consola de `file-sync`, así que las dos
+herramientas pueden turnarse sobre el mismo directorio).
+
+Cuándo se sincroniza, según el §3.3 del enunciado:
+
+- **Solo a mano**, con el botón.
+- **Cada tantos minutos.**
+- **Todos los días a una hora**, que es el "horario establecido" que pide el
+  enunciado. Corre aunque la sección esté cerrada, mientras la aplicación siga
+  abierta y la sesión viva.
+
+Los conflictos (dos equipos tocaron el mismo archivo) se resuelven eligiendo la
+versión del servidor, la del equipo, o conservando las dos: la copia local se
+guarda aparte con su marca.
 
 ## Estado
 
@@ -72,7 +97,7 @@ internal/
 | Mi unidad (listar, subir, descargar, carpetas, renombrar, destacar, papelera) | ✔ |
 | Compartido conmigo · compartir con otras cuentas | ✔ |
 | Versiones de un archivo | ✔ (lectura) |
-| Sincronización (gRPC) | pendiente |
+| Sincronización: carpeta, registro del equipo, pasadas manuales y por horario, conflictos | ✔ |
 | Fotos · Videos · Trabajos MPI · Monitoreo · Administración | pendiente |
 
 Las secciones que la cuenta no tenga en su claim `servicios` aparecen con el

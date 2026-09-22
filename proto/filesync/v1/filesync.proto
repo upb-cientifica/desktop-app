@@ -1,0 +1,160 @@
+// COPIA DEL CONTRATO de file-sync (proto/filesync/v1/filesync.proto).
+//
+// El servidor vive en otro repositorio y este es un cliente suyo: se copia el
+// .proto porque es el contrato, no código compartido. Si allá cambia, hay que
+// traerlo otra vez y regenerar (make proto). Solo cambia go_package, para que
+// los stubs se generen dentro de este módulo.
+
+syntax = "proto3";
+
+package upb.filesync.v1;
+
+option go_package = "github.com/upb-cientifica/desktop-app/gen/filesync/v1;filesyncv1";
+
+// ------------------------------------------------------------------------------
+// File Sync — sincronización de árboles de directorios contra un repositorio
+// central, con historial de versiones y detección/resolución de conflictos.
+// Corresponde al recuadro "gRPC Server Go (Sync)" de la Figura 1 del enunciado.
+// La identidad viaja en el metadato `authorization: Bearer <JWT RS256>` emitido
+// por el Servicio de Usuarios; se exige el servicio "file_sync" en el token.
+// ------------------------------------------------------------------------------
+
+// Estado de un archivo dentro del Home del usuario.
+message Entry {
+  string ruta = 1;            // ruta relativa con separador '/'
+  int64  version = 2;         // versión en el servidor (0 = no existe)
+  string content_hash = 3;    // sha256 en hexadecimal
+  int64  tamano_bytes = 4;
+  uint32 modo = 5;            // permisos unix (p. ej. 0644) como entero
+  bool   borrado = 6;         // tumba: el archivo fue eliminado en esta versión
+  string actualizado_en = 7;  // RFC3339
+  string dispositivo = 8;     // último dispositivo que lo modificó
+}
+
+enum Resultado {
+  RESULTADO_NO_ESPECIFICADO = 0;
+  APLICADO = 1;               // se creó una versión nueva en el servidor
+  SIN_CAMBIOS = 2;            // el contenido ya coincidía con la versión actual
+  CONFLICTO = 3;              // base_version obsoleta y el contenido difiere
+}
+
+// --- Dispositivos -------------------------------------------------------------
+
+message RegistrarDispositivoRequest {
+  string nombre = 1;
+  string plataforma = 2;      // "escritorio-linux", "escritorio-windows", "android", "ios"
+  string carpeta_local = 3;
+}
+message RegistrarDispositivoResponse { string dispositivo_id = 1; }
+
+// --- Manifiesto -------------------------------------------------------------
+
+message ListEntriesRequest { string prefijo = 1; } // "" = todo el Home
+message ListEntriesResponse { repeated Entry entradas = 1; }
+
+// --- Descarga --------------------------------------------------------------
+
+message DownloadRequest {
+  string ruta = 1;
+  int64  version = 2;         // 0 = versión actual
+}
+message FileChunk {
+  oneof payload {
+    Entry meta = 1;           // primer mensaje del stream
+    bytes datos = 2;          // trozos de contenido
+  }
+}
+
+// --- Subida --------------------------------------------------------------
+
+message UploadRequest {
+  message Meta {
+    string ruta = 1;
+    int64  base_version = 2;  // versión que el cliente cree vigente en el servidor
+    string content_hash = 3;  // sha256 hex del contenido que se enviará
+    int64  tamano_bytes = 4;
+    uint32 modo = 5;
+    string dispositivo = 6;
+    string comentario = 7;
+  }
+  oneof payload {
+    Meta  meta = 1;            // primer mensaje del stream
+    bytes datos = 2;           // trozos de contenido
+  }
+}
+message UploadResponse {
+  Resultado resultado = 1;
+  Entry     entrada = 2;       // estado del archivo en el servidor tras la operación
+  int64     conflicto_id = 3;  // > 0 si resultado == CONFLICTO
+}
+
+// --- Borrado --------------------------------------------------------------
+
+message DeleteRequest {
+  string ruta = 1;
+  int64  base_version = 2;
+  string dispositivo = 3;
+}
+message DeleteResponse {
+  Resultado resultado = 1;
+  Entry     entrada = 2;
+  int64     conflicto_id = 3;
+}
+
+// --- Conflictos --------------------------------------------------------------
+
+message Conflicto {
+  int64  id = 1;
+  string ruta = 2;
+  int64  version_servidor = 3;
+  string hash_servidor = 4;
+  string hash_cliente = 5;
+  int64  tamano_cliente = 6;
+  string dispositivo = 7;
+  string detectado_en = 8;
+  bool   resuelto = 9;
+  string estrategia = 10;
+  string resuelto_en = 11;
+}
+
+message ListarConflictosRequest { bool incluir_resueltos = 1; }
+message ListarConflictosResponse { repeated Conflicto conflictos = 1; }
+
+enum Estrategia {
+  ESTRATEGIA_NO_ESPECIFICADA = 0;
+  MANTENER_SERVIDOR = 1;      // descarta la copia del cliente
+  MANTENER_CLIENTE  = 2;      // la copia del cliente pasa a ser la versión actual
+  MANTENER_AMBOS    = 3;      // la copia del cliente se guarda como "<ruta> (conflicto ...)"
+}
+message ResolverConflictoRequest {
+  int64      conflicto_id = 1;
+  Estrategia estrategia = 2;
+}
+message ResolverConflictoResponse {
+  Entry  entrada = 1;         // estado resultante de la ruta original
+  string ruta_copia = 2;      // ruta de la copia (solo con MANTENER_AMBOS)
+}
+
+// --- Estado --------------------------------------------------------------
+
+message EstadoRequest {}
+message EstadoResponse {
+  int64  archivos = 1;
+  int64  bytes = 2;
+  int64  conflictos_pendientes = 3;
+  string ultima_sync = 4;
+  repeated Entry recientes = 5;
+}
+
+// --- Servicio --------------------------------------------------------------
+
+service FileSync {
+  rpc RegistrarDispositivo(RegistrarDispositivoRequest) returns (RegistrarDispositivoResponse);
+  rpc ListEntries(ListEntriesRequest) returns (ListEntriesResponse);
+  rpc Download(DownloadRequest) returns (stream FileChunk);
+  rpc Upload(stream UploadRequest) returns (UploadResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc ListarConflictos(ListarConflictosRequest) returns (ListarConflictosResponse);
+  rpc ResolverConflicto(ResolverConflictoRequest) returns (ResolverConflictoResponse);
+  rpc Estado(EstadoRequest) returns (EstadoResponse);
+}

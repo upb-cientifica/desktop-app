@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/upb-cientifica/desktop-app/internal/bus"
+	"github.com/upb-cientifica/desktop-app/internal/sincro"
 )
 
 // seccion es cada entrada del menú lateral. `servicio` es el código con el que
@@ -34,7 +35,7 @@ func (a *App) secciones() []seccion {
 		{nombre: "Papelera", icono: theme.DeleteIcon(), servicio: "shared_file",
 			abrir: func() fyne.CanvasObject { return a.vistaArchivos(bus.Papelera) }},
 		{nombre: "Sincronización", icono: theme.ViewRefreshIcon(), servicio: "file_sync",
-			abrir: func() fyne.CanvasObject { return enConstruccion("Sincronización") }},
+			abrir: func() fyne.CanvasObject { return a.vistaSincronizacion() }},
 		{nombre: "Fotos", icono: theme.MediaPhotoIcon(), servicio: "photo_album",
 			abrir: func() fyne.CanvasObject { return enConstruccion("Fotos") }},
 		{nombre: "Videos", icono: theme.MediaVideoIcon(), servicio: "streaming",
@@ -96,6 +97,9 @@ func (a *App) mostrarPrincipal() {
 	division := container.NewHSplit(lateral, container.NewBorder(
 		container.NewPadded(encabezado), nil, nil, nil, area))
 	division.SetOffset(0.22)
+
+	// El horario de sincronización corre aunque la sección esté cerrada.
+	a.guardarPrograma(sincro.CargarPrograma(a.cfg.DirDatos, defaultCarpetaSincro()))
 
 	a.win.SetContent(division)
 	menu.Select(0)

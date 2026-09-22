@@ -7,6 +7,9 @@ package ui
 
 import (
 	"context"
+	"net/url"
+	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -15,6 +18,7 @@ import (
 	"github.com/upb-cientifica/desktop-app/internal/bus"
 	"github.com/upb-cientifica/desktop-app/internal/config"
 	"github.com/upb-cientifica/desktop-app/internal/sesion"
+	"github.com/upb-cientifica/desktop-app/internal/sincro"
 )
 
 type App struct {
@@ -27,6 +31,10 @@ type App struct {
 	// refrescarCuota lo instala el marco principal: las vistas lo llaman
 	// cuando cambian el contenido del Home.
 	refrescarCuota func()
+
+	mu          sync.Mutex
+	sincroCli   *sincro.Cliente
+	programador *sincro.Programador
 }
 
 func Nueva(cfg config.Config, cli *bus.Cliente, ses *sesion.Sesion) *App {
@@ -78,4 +86,86 @@ func enSegundoPlano[T any](trabajo func(context.Context) (T, error), alTerminar 
 
 func (a *App) error(err error) {
 	dialog.ShowError(err, a.win)
+}
+
+// sincro abre —una sola vez— la conexión gRPC con File Sync. El token se
+// consulta en cada llamada, porque se renueva cada quince minutos.
+func (a *App) sincro() (*sincro.Cliente, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sincroCli != nil {
+		return a.sincroCli, nil
+	}
+	cli, err := sincro.Conectar(a.cfg.SincroAddr, a.cli.Token)
+	if err != nil {
+		return nil, err
+	}
+	a.sincroCli = cli
+	return cli, nil
+}
+
+func defaultCarpetaSincro() string { return config.CarpetaSincroPorDefecto() }
+
+func legible(bytes int64) string { return bus.Legible(bytes) }
+
+// abrirEnElSistema deja que el explorador de archivos del sistema muestre la
+// carpeta sincronizada.
+func (a *App) abrirEnElSistema(ruta string) {
+	u, err := url.Parse("file://" + ruta)
+	if err != nil {
+		a.error(err)
+		return
+	}
+	if err := a.fyne.OpenURL(u); err != nil {
+		a.error(err)
+	}
+}
+
+// guardarPrograma deja en disco cuándo hay que sincronizar y se lo pasa al
+// programador, que es quien mira el reloj.
+func (a *App) guardarPrograma(p sincro.Programa) {
+	if err := sincro.GuardarPrograma(a.cfg.DirDatos, p); err != nil {
+		a.error(err)
+		return
+	}
+	a.arrancarProgramador().Aplicar(p)
+}
+
+// marcarSincronizacion recuerda que acaba de correr una pasada, para que el
+// horario no la repita.
+func (a *App) marcarSincronizacion() {
+	p := a.arrancarProgramador().MarcarEjecucion(time.Now())
+	_ = sincro.GuardarPrograma(a.cfg.DirDatos, p)
+}
+
+func (a *App) arrancarProgramador() *sincro.Programador {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.programador == nil {
+		a.programador = sincro.NuevoProgramador(a.sincronizacionProgramada)
+	}
+	return a.programador
+}
+
+// sincronizacionProgramada es la pasada que dispara el horario, sin que nadie
+// esté mirando la ventana. Lo que ocurra queda en el estado de la carpeta y se
+// ve al abrir la sección.
+func (a *App) sincronizacionProgramada() {
+	if !a.ses.Abierta() {
+		return
+	}
+	p := sincro.CargarPrograma(a.cfg.DirDatos, defaultCarpetaSincro())
+	st := sincro.CargarEstado(p.Carpeta)
+	if !st.Registrado() {
+		return
+	}
+	cli, err := a.sincro()
+	if err != nil {
+		return
+	}
+	ctx, cancelar := context.WithTimeout(context.Background(), time.Hour)
+	defer cancelar()
+	cli.Sincronizar(ctx, st, p.Carpeta, sincro.Opciones{Subir: true, Borrar: p.PropagarBorrados})
+	_ = st.Guardar()
+	a.marcarSincronizacion()
 }
