@@ -58,12 +58,16 @@ func NuevoCliente(baseURL string) *Cliente {
 	// El transporte se configura a mano por lo que pasó en pruebas: si el bus
 	// se reinicia, las conexiones que el cliente tenía guardadas quedan
 	// muertas, y al reutilizar una, la petición se queda esperando una
-	// respuesta que no va a llegar. Con un plazo para la primera línea de la
-	// respuesta el fallo se nota en segundos, y las conexiones ociosas se
-	// sueltan pronto en vez de guardarse indefinidamente.
+	// respuesta que no va a llegar. Soltar pronto las conexiones ociosas evita
+	// casi siempre ese caso, y del resto se encarga el reintento de `hacer`.
+	//
+	// Sin plazo para la primera línea de la respuesta: hay operaciones que
+	// tardan de verdad porque el servidor está trabajando —publicar un video
+	// lo convierte a HLS con ffmpeg— y cortarlas a los veinte segundos las
+	// hacía fallar siempre. Cuánto esperar lo decide cada llamada con su
+	// contexto, que es quien sabe si es una consulta o una subida.
 	transporte := http.DefaultTransport.(*http.Transport).Clone()
 	transporte.IdleConnTimeout = 30 * time.Second
-	transporte.ResponseHeaderTimeout = 20 * time.Second
 	transporte.MaxIdleConnsPerHost = 4
 
 	return &Cliente{
