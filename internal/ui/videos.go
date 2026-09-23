@@ -38,7 +38,8 @@ func (a *App) vistaVideos() fyne.CanvasObject {
 		func() fyne.CanvasObject {
 			return container.NewBorder(nil, nil,
 				widget.NewIcon(theme.MediaVideoIcon()),
-				widget.NewLabel("duración"),
+				container.NewHBox(widget.NewLabel("duración"),
+					widget.NewButtonWithIcon("", theme.MoreVerticalIcon(), nil)),
 				widget.NewLabel("título"))
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
@@ -48,13 +49,21 @@ func (a *App) vistaVideos() fyne.CanvasObject {
 			vid := v.videos[i]
 			fila := o.(*fyne.Container)
 			fila.Objects[0].(*widget.Label).SetText(vid.Titulo)
-			fila.Objects[2].(*widget.Label).SetText(detalleDeVideo(vid))
+			derecha := fila.Objects[2].(*fyne.Container)
+			derecha.Objects[0].(*widget.Label).SetText(detalleDeVideo(vid))
+			derecha.Objects[1].(*widget.Button).OnTapped = func() { v.acciones(vid) }
 		},
 	)
+	// Tocar la fila reproduce; para lo demás está el botón de acciones.
 	v.lista.OnSelected = func(i widget.ListItemID) {
 		v.lista.Unselect(i)
-		if i >= 0 && i < len(v.videos) {
-			v.acciones(v.videos[i])
+		if i < 0 || i >= len(v.videos) {
+			return
+		}
+		if reproductor.Disponible() {
+			v.reproducirAqui(v.videos[i])
+		} else {
+			v.abrirEnElSistema(v.videos[i])
 		}
 	}
 

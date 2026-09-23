@@ -75,6 +75,11 @@ func (c *Cliente) AgregarImagenDelHome(ctx context.Context, albumID, rutaHome, t
 	return im, err
 }
 
+// EliminarImagen quita una foto del álbum.
+func (c *Cliente) EliminarImagen(ctx context.Context, id string) error {
+	return c.Pedir(ctx, http.MethodDelete, "photo_album", "/imagenes/"+url.PathEscape(id), nil, nil)
+}
+
 // ---------- Streaming ----------
 
 type Video struct {

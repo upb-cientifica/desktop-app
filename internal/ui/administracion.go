@@ -35,7 +35,8 @@ func (a *App) vistaAdministracion() fyne.CanvasObject {
 		func() fyne.CanvasObject {
 			return container.NewBorder(nil, nil,
 				widget.NewIcon(theme.AccountIcon()),
-				widget.NewLabel("estado"),
+				container.NewHBox(widget.NewLabel("estado"),
+					widget.NewButtonWithIcon("", theme.MoreVerticalIcon(), nil)),
 				widget.NewLabel("nombre"))
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
@@ -45,7 +46,9 @@ func (a *App) vistaAdministracion() fyne.CanvasObject {
 			u := v.usuarios[i]
 			fila := o.(*fyne.Container)
 			fila.Objects[0].(*widget.Label).SetText(u.Nombre + "  ·  " + u.Correo)
-			fila.Objects[2].(*widget.Label).SetText(resumenDeCuenta(u))
+			derecha := fila.Objects[2].(*fyne.Container)
+			derecha.Objects[0].(*widget.Label).SetText(resumenDeCuenta(u))
+			derecha.Objects[1].(*widget.Button).OnTapped = func() { v.acciones(u) }
 		},
 	)
 	v.lista.OnSelected = func(i widget.ListItemID) {

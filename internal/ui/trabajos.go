@@ -32,7 +32,8 @@ func (a *App) vistaTrabajos() fyne.CanvasObject {
 		func() fyne.CanvasObject {
 			return container.NewBorder(nil, nil,
 				widget.NewIcon(theme.ComputerIcon()),
-				widget.NewLabel("estado"),
+				container.NewHBox(widget.NewLabel("estado"),
+					widget.NewButtonWithIcon("", theme.MoreVerticalIcon(), nil)),
 				widget.NewLabel("nombre"))
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
@@ -42,7 +43,9 @@ func (a *App) vistaTrabajos() fyne.CanvasObject {
 			t := v.trabajos[i]
 			fila := o.(*fyne.Container)
 			fila.Objects[0].(*widget.Label).SetText(t.Nombre)
-			fila.Objects[2].(*widget.Label).SetText(estadoLegible(t))
+			derecha := fila.Objects[2].(*fyne.Container)
+			derecha.Objects[0].(*widget.Label).SetText(estadoLegible(t))
+			derecha.Objects[1].(*widget.Button).OnTapped = func() { v.detalle(t) }
 		},
 	)
 	v.lista.OnSelected = func(i widget.ListItemID) {

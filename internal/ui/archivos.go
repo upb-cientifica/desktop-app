@@ -46,16 +46,18 @@ func (v *vistaDeArchivos) construir() fyne.CanvasObject {
 	v.camino = widget.NewLabel("")
 	v.estado = widget.NewLabel("")
 
-	// Cada fila es un borde: icono a la izquierda, detalle a la derecha y el
-	// nombre en el centro, que es lo que se recorta si no cabe. NewBorder
-	// guarda primero los objetos del centro y luego los de los lados, así que
-	// el orden de Objects es nombre, icono, detalle.
+	// Cada fila es un borde: icono a la izquierda, y a la derecha el detalle
+	// con el botón de acciones; el nombre va en el centro, que es lo que se
+	// recorta si no cabe. NewBorder guarda primero los objetos del centro y
+	// luego los de los lados, así que el orden de Objects es nombre, icono,
+	// derecha.
 	v.lista = widget.NewList(
 		func() int { return len(v.nodos) },
 		func() fyne.CanvasObject {
 			return container.NewBorder(nil, nil,
 				widget.NewIcon(theme.FileIcon()),
-				widget.NewLabel("tamaño"),
+				container.NewHBox(widget.NewLabel("tamaño"),
+					widget.NewButtonWithIcon("", theme.MoreVerticalIcon(), nil)),
 				widget.NewLabel("nombre"))
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
@@ -66,7 +68,10 @@ func (v *vistaDeArchivos) construir() fyne.CanvasObject {
 			fila := o.(*fyne.Container)
 			fila.Objects[0].(*widget.Label).SetText(n.Nombre)
 			fila.Objects[1].(*widget.Icon).SetResource(iconoDe(n))
-			fila.Objects[2].(*widget.Label).SetText(detalleDe(n))
+			derecha := fila.Objects[2].(*fyne.Container)
+			derecha.Objects[0].(*widget.Label).SetText(detalleDe(n))
+			// Las filas se reciclan: el botón se reasigna en cada pasada.
+			derecha.Objects[1].(*widget.Button).OnTapped = func() { v.acciones(n) }
 		},
 	)
 	v.lista.OnSelected = func(i widget.ListItemID) {

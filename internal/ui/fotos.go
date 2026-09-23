@@ -126,7 +126,11 @@ func (v *vistaFotos) tarjeta(im bus.Imagen) fyne.CanvasObject {
 
 	abrir := widget.NewButton("", func() { v.abrir(im) })
 	abrir.Importance = widget.LowImportance
-	return container.NewBorder(nil, titulo, nil, nil, container.NewStack(marco, abrir))
+	acciones := widget.NewButtonWithIcon("", theme.MoreVerticalIcon(), func() { v.acciones(im) })
+	acciones.Importance = widget.LowImportance
+
+	pie := container.NewBorder(nil, nil, nil, acciones, titulo)
+	return container.NewBorder(nil, pie, nil, nil, container.NewStack(marco, abrir))
 }
 
 // abrir muestra la imagen completa, que es otra llamada al servicio.
@@ -226,4 +230,43 @@ func (v *vistaFotos) albumDeMiUnidad(ctx context.Context) (bus.Album, error) {
 		}
 	}
 	return v.app.cli.CrearAlbum(ctx, albumPropio)
+}
+
+// acciones son las decisiones que se pueden tomar sobre una foto.
+func (v *vistaFotos) acciones(im bus.Imagen) {
+	var d dialog.Dialog
+	ver := widget.NewButtonWithIcon("Ver la imagen", theme.VisibilityIcon(), func() {
+		d.Hide()
+		v.abrir(im)
+	})
+	ver.Importance = widget.HighImportance
+	quitar := widget.NewButtonWithIcon("Quitar de Fotos", theme.DeleteIcon(), func() {
+		d.Hide()
+		v.quitar(im)
+	})
+
+	d = dialog.NewCustom(im.Titulo, "Cerrar",
+		container.NewVBox(widget.NewLabel(detalleDeFoto(im)), ver, quitar), v.app.win)
+	d.Show()
+}
+
+// quitar la saca del álbum. El archivo original sigue en Mi unidad, porque el
+// Álbum guarda su propia copia de lo que recogió del Home.
+func (v *vistaFotos) quitar(im bus.Imagen) {
+	dialog.ShowConfirm("Quitar de Fotos",
+		"¿Quitar \""+im.Titulo+"\" del álbum? El archivo sigue en Mi unidad.",
+		func(ok bool) {
+			if !ok {
+				return
+			}
+			enSegundoPlano(func(ctx context.Context) (struct{}, error) {
+				return struct{}{}, v.app.cli.EliminarImagen(ctx, im.ID)
+			}, func(_ struct{}, err error) {
+				if err != nil {
+					v.app.error(err)
+					return
+				}
+				v.cargarFotos()
+			})
+		}, v.app.win)
 }
