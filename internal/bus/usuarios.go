@@ -70,19 +70,7 @@ func (c *Cliente) Renovar(ctx context.Context, refresco string) (Sesion, error) 
 
 // MiPerfil devuelve la cuenta del token actual.
 func (c *Cliente) MiPerfil(ctx context.Context) (Usuario, error) {
-	var r struct {
-		Usuario Usuario `json:"usuario"`
-	}
-	if err := c.Pedir(ctx, http.MethodPost, "usuarios", "/miPerfil", nil, &r); err != nil {
-		return Usuario{}, err
-	}
-	if r.Usuario.Correo != "" {
-		return r.Usuario, nil
-	}
-	// Según la operación, el bus devuelve el usuario ya desenvuelto.
-	var u Usuario
-	err := c.Pedir(ctx, http.MethodPost, "usuarios", "/miPerfil", nil, &u)
-	return u, err
+	return c.usuarioDe(ctx, "/miPerfil", nil)
 }
 
 // CerrarSesion revoca la sesión en el servidor.
@@ -169,6 +157,8 @@ func (c *Cliente) CambiarCuota(ctx context.Context, id string, bytes int64) (Usu
 	})
 }
 
+// usuarioDe lee un usuario de una respuesta que, según la operación, viene
+// envuelta en `usuario` o ya desenvuelta por el bus.
 func (c *Cliente) usuarioDe(ctx context.Context, op string, params map[string]string) (Usuario, error) {
 	var crudo json.RawMessage
 	if err := c.Pedir(ctx, http.MethodPost, "usuarios", op, params, &crudo); err != nil {

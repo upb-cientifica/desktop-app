@@ -56,6 +56,16 @@ func (a *App) Ejecutar() {
 		})
 	}
 
+	// Cuando el perfil termina de llegar, el marco se redibuja con el nombre
+	// y, si toca, con la sección de Administración.
+	a.ses.AlActualizarse = func() {
+		fyne.Do(func() {
+			if a.ses.Abierta() {
+				a.mostrarPrincipal()
+			}
+		})
+	}
+
 	a.mostrarCargando("Reanudando la sesión…")
 	go func() {
 		ctx, cancelar := bus.ConPlazo(context.Background())

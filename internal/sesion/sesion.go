@@ -31,6 +31,8 @@ type Sesion struct {
 	// AlCerrarse se llama cuando la sesión se cae sola (refresco vencido o
 	// revocado). Lo usa la interfaz para volver a la pantalla de entrada.
 	AlCerrarse func()
+	// AlActualizarse avisa de que los datos del usuario ya están completos.
+	AlActualizarse func()
 }
 
 type guardado struct {
@@ -87,9 +89,26 @@ func (s *Sesion) Salir(ctx context.Context) {
 }
 
 func (s *Sesion) instalar(d bus.Sesion) {
+	usuario := d.Usuario
+	// Los permisos salen del token, que es lo que el bus verifica. La
+	// operación de renovar, por ejemplo, no devuelve el usuario completo, y
+	// sin esto la ventana creía que la cuenta no tenía ningún servicio.
+	if c, err := bus.ClaimsDe(d.AccessToken); err == nil {
+		usuario.Servicios = c.Servicios
+		if usuario.Rol == "" {
+			usuario.Rol = c.Rol
+		}
+		if usuario.Correo == "" {
+			usuario.Correo = c.Correo
+		}
+		if usuario.ID == "" {
+			usuario.ID = c.Sujeto
+		}
+	}
+
 	s.mu.Lock()
 	s.refresco = d.RefreshToken
-	s.usuario = d.Usuario
+	s.usuario = usuario
 	s.abierta = true
 	if s.cancelar != nil {
 		s.cancelar()
@@ -99,8 +118,34 @@ func (s *Sesion) instalar(d bus.Sesion) {
 	s.mu.Unlock()
 
 	s.cli.PonerToken(d.AccessToken)
-	s.escribir(guardado{RefreshToken: d.RefreshToken, Correo: d.Usuario.Correo})
+	s.escribir(guardado{RefreshToken: d.RefreshToken, Correo: usuario.Correo})
 	go s.renovarAntesDeQueExpire(ctx, d.ExpiraEn.Int64())
+
+	// El nombre y la cuota los completa el perfil, que sí los trae siempre.
+	if usuario.Nombre == "" {
+		go s.completarPerfil()
+	}
+}
+
+// completarPerfil rellena lo que el token no dice (nombre, cuota, grupo).
+func (s *Sesion) completarPerfil() {
+	ctx, cancelar := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelar()
+	u, err := s.cli.MiPerfil(ctx)
+	if err != nil || u.Correo == "" {
+		return
+	}
+	s.mu.Lock()
+	servicios, rol := s.usuario.Servicios, s.usuario.Rol
+	s.usuario = u
+	s.usuario.Servicios = servicios // los del token mandan
+	if rol != "" {
+		s.usuario.Rol = rol
+	}
+	s.mu.Unlock()
+	if s.AlActualizarse != nil {
+		s.AlActualizarse()
+	}
 }
 
 // renovarAntesDeQueExpire pide un token nuevo un minuto antes del vencimiento.

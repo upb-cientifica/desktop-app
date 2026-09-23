@@ -37,15 +37,15 @@ func (a *App) secciones() []seccion {
 		{nombre: "Sincronización", icono: theme.ViewRefreshIcon(), servicio: "file_sync",
 			abrir: func() fyne.CanvasObject { return a.vistaSincronizacion() }},
 		{nombre: "Fotos", icono: theme.MediaPhotoIcon(), servicio: "photo_album",
-			abrir: func() fyne.CanvasObject { return enConstruccion("Fotos") }},
+			abrir: func() fyne.CanvasObject { return a.vistaFotos() }},
 		{nombre: "Videos", icono: theme.MediaVideoIcon(), servicio: "streaming",
-			abrir: func() fyne.CanvasObject { return enConstruccion("Videos") }},
+			abrir: func() fyne.CanvasObject { return a.vistaVideos() }},
 		{nombre: "Trabajos MPI", icono: theme.ComputerIcon(), servicio: "hpc",
-			abrir: func() fyne.CanvasObject { return enConstruccion("Trabajos MPI") }},
+			abrir: func() fyne.CanvasObject { return a.vistaTrabajos() }},
 		{nombre: "Monitoreo", icono: theme.InfoIcon(), servicio: "monitoreo",
-			abrir: func() fyne.CanvasObject { return enConstruccion("Monitoreo") }},
+			abrir: func() fyne.CanvasObject { return a.vistaMonitoreo() }},
 		{nombre: "Administración", icono: theme.SettingsIcon(), servicio: "", soloAdmin: true,
-			abrir: func() fyne.CanvasObject { return enConstruccion("Administración") }},
+			abrir: func() fyne.CanvasObject { return a.vistaAdministracion() }},
 	}
 }
 
@@ -77,15 +77,24 @@ func (a *App) mostrarPrincipal() {
 		},
 	)
 
+	// Cada sección se arma una sola vez y se guarda: volver a ella conserva la
+	// carpeta donde ibas y no deja corriendo dos veces el refresco del
+	// Monitoreo, que se actualiza solo.
+	armadas := map[string]fyne.CanvasObject{}
+
 	menu.OnSelected = func(i widget.ListItemID) {
 		s := secs[i]
 		titulo.SetText(s.nombre)
-		if !a.tieneServicio(s.servicio) {
-			area.Objects = []fyne.CanvasObject{sinPermiso(s.nombre)}
-			area.Refresh()
-			return
+		vista, lista := armadas[s.nombre]
+		if !lista {
+			if a.tieneServicio(s.servicio) {
+				vista = s.abrir()
+			} else {
+				vista = sinPermiso(s.nombre)
+			}
+			armadas[s.nombre] = vista
 		}
-		area.Objects = []fyne.CanvasObject{s.abrir()}
+		area.Objects = []fyne.CanvasObject{vista}
 		area.Refresh()
 	}
 
@@ -119,10 +128,6 @@ func sinPermiso(nombre string) fyne.CanvasObject {
 		".\nPide a un administrador que te lo asigne.")
 	etiqueta.Alignment = fyne.TextAlignCenter
 	return container.NewCenter(etiqueta)
-}
-
-func enConstruccion(nombre string) fyne.CanvasObject {
-	return container.NewCenter(widget.NewLabel(nombre + ": en construcción."))
 }
 
 // barraCuota muestra cuánto del Home está ocupado, bajo el menú.

@@ -1,6 +1,7 @@
 package bus
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 )
@@ -97,5 +98,29 @@ func TestLegible(t *testing.T) {
 		if got := Legible(bytes); got != esperado {
 			t.Fatalf("%d bytes: se esperaba %q, llegó %q", bytes, esperado, got)
 		}
+	}
+}
+
+// El claim `servicios` del token es lo que el bus verifica; la respuesta de
+// renovar no trae el usuario completo, así que los permisos se leen de aquí.
+func TestClaimsDelToken(t *testing.T) {
+	// Carga útil de ejemplo, sin firma válida: aquí solo se descodifica.
+	carga := base64.RawURLEncoding.EncodeToString([]byte(
+		`{"correo":"ana@upb.edu.co","rol":"investigador","servicios":["shared_file","file_sync"],"sub":"7"}`))
+	c, err := ClaimsDe("encabezado." + carga + ".firma")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Correo != "ana@upb.edu.co" || c.Sujeto != "7" || c.EsAdmin() {
+		t.Fatalf("claims mal leídos: %+v", c)
+	}
+	if !c.Servicios.Contiene("shared_file") || c.Servicios.Contiene("streaming") {
+		t.Fatalf("servicios mal leídos: %v", c.Servicios)
+	}
+}
+
+func TestClaimsDeUnTokenQueNoLoEs(t *testing.T) {
+	if _, err := ClaimsDe("esto-no-es-un-jwt"); err == nil {
+		t.Fatal("se esperaba un error")
 	}
 }

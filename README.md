@@ -98,10 +98,23 @@ guarda aparte con su marca.
 | Compartido conmigo · compartir con otras cuentas | ✔ |
 | Versiones de un archivo | ✔ (lectura) |
 | Sincronización: carpeta, registro del equipo, pasadas manuales y por horario, conflictos | ✔ |
-| Fotos · Videos · Trabajos MPI · Monitoreo · Administración | pendiente |
+| Fotos: álbumes, miniaturas y ver la imagen completa | ✔ |
+| Videos: catálogo y reproducción HLS en el reproductor del sistema | ✔ |
+| Trabajos MPI: enviar, ver salida, cancelar, nodos | ✔ |
+| Monitoreo: CPU, memoria, disco y estado de los servicios | ✔ |
+| Administración: altas, cuotas, bajas y sesiones | ✔ |
 
 Las secciones que la cuenta no tenga en su claim `servicios` aparecen con el
 aviso correspondiente en vez de fallar al abrirlas.
+
+## Video
+
+Fyne no trae reproductor de video, y escribir uno para HLS sería rehacer lo que
+el sistema operativo ya tiene. Al pulsar **Reproducir**, la aplicación abre el
+flujo HLS en el reproductor del equipo (QuickTime o Safari en macOS; VLC o mpv
+en Linux). El video sigue viniendo del servidor a través del bus, en trozos: no
+se descarga entero. Como un reproductor externo no manda encabezados, el token
+viaja en la URL, que es algo que el bus y el servicio aceptan para este caso.
 
 ## Pruebas
 

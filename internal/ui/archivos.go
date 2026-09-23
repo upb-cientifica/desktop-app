@@ -46,19 +46,26 @@ func (v *vistaDeArchivos) construir() fyne.CanvasObject {
 	v.camino = widget.NewLabel("")
 	v.estado = widget.NewLabel("")
 
+	// Cada fila es un borde: icono a la izquierda, detalle a la derecha y el
+	// nombre en el centro, que es lo que se recorta si no cabe. NewBorder
+	// guarda primero los objetos del centro y luego los de los lados, así que
+	// el orden de Objects es nombre, icono, detalle.
 	v.lista = widget.NewList(
 		func() int { return len(v.nodos) },
 		func() fyne.CanvasObject {
 			return container.NewBorder(nil, nil,
-				container.NewHBox(widget.NewIcon(theme.FileIcon()), widget.NewLabel("plantilla")),
-				widget.NewLabel("tamaño"))
+				widget.NewIcon(theme.FileIcon()),
+				widget.NewLabel("tamaño"),
+				widget.NewLabel("nombre"))
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
+			if i < 0 || i >= len(v.nodos) {
+				return
+			}
 			n := v.nodos[i]
 			fila := o.(*fyne.Container)
-			izq := fila.Objects[1].(*fyne.Container)
-			izq.Objects[0].(*widget.Icon).SetResource(iconoDe(n))
-			izq.Objects[1].(*widget.Label).SetText(n.Nombre)
+			fila.Objects[0].(*widget.Label).SetText(n.Nombre)
+			fila.Objects[1].(*widget.Icon).SetResource(iconoDe(n))
 			fila.Objects[2].(*widget.Label).SetText(detalleDe(n))
 		},
 	)
