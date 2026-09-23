@@ -47,18 +47,31 @@ func EsNoAutorizado(err error) bool {
 // Cliente es seguro para usarse desde varias gorutinas: la interfaz lanza
 // cada llamada en la suya para no congelar la ventana.
 type Cliente struct {
-	base  string
-	http  *http.Client
-	mu    sync.RWMutex
-	token string
+	base       string
+	http       *http.Client
+	transporte *http.Transport
+	mu         sync.RWMutex
+	token      string
 }
 
 func NuevoCliente(baseURL string) *Cliente {
+	// El transporte se configura a mano por lo que pasó en pruebas: si el bus
+	// se reinicia, las conexiones que el cliente tenía guardadas quedan
+	// muertas, y al reutilizar una, la petición se queda esperando una
+	// respuesta que no va a llegar. Con un plazo para la primera línea de la
+	// respuesta el fallo se nota en segundos, y las conexiones ociosas se
+	// sueltan pronto en vez de guardarse indefinidamente.
+	transporte := http.DefaultTransport.(*http.Transport).Clone()
+	transporte.IdleConnTimeout = 30 * time.Second
+	transporte.ResponseHeaderTimeout = 20 * time.Second
+	transporte.MaxIdleConnsPerHost = 4
+
 	return &Cliente{
 		base: strings.TrimRight(baseURL, "/"),
 		// Sin plazo global: subir o bajar un archivo grande puede tardar,
 		// y cada llamada trae su propio contexto.
-		http: &http.Client{},
+		http:       &http.Client{Transport: transporte},
+		transporte: transporte,
 	}
 }
 
@@ -121,7 +134,7 @@ func (c *Cliente) PedirCuerpo(ctx context.Context, metodo, servicio, ruta string
 		req.Header.Set("Content-Type", tipoContenido)
 	}
 
-	res, err := c.http.Do(req)
+	res, err := c.hacer(req, cuerpo == nil)
 	if err != nil {
 		return fmt.Errorf("no se pudo hablar con el bus: %w", err)
 	}
@@ -163,7 +176,7 @@ func (c *Cliente) Descargar(ctx context.Context, servicio, ruta string, params m
 	if t := c.Token(); t != "" {
 		req.Header.Set("Authorization", "Bearer "+t)
 	}
-	res, err := c.http.Do(req)
+	res, err := c.hacer(req, true)
 	if err != nil {
 		return nil, fmt.Errorf("no se pudo hablar con el bus: %w", err)
 	}
@@ -193,6 +206,18 @@ func (c *Cliente) JSON(ctx context.Context, metodo, servicio, ruta string, param
 		return err
 	}
 	return c.PedirCuerpo(ctx, metodo, servicio, ruta, params, bytes.NewReader(b), "application/json", destino)
+}
+
+// hacer envía la petición y, si falla por red, lo intenta una segunda vez con
+// una conexión nueva: el caso típico es una conexión guardada que murió porque
+// el bus se reinició. Solo se reintenta cuando no hay cuerpo que reenviar.
+func (c *Cliente) hacer(req *http.Request, reintentable bool) (*http.Response, error) {
+	res, err := c.http.Do(req)
+	if err == nil || !reintentable || req.Context().Err() != nil {
+		return res, err
+	}
+	c.transporte.CloseIdleConnections()
+	return c.http.Do(req.Clone(req.Context()))
 }
 
 // ConPlazo devuelve un contexto con el plazo corriente de las operaciones de
