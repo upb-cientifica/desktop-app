@@ -99,7 +99,7 @@ guarda aparte con su marca.
 | Versiones de un archivo | ✔ (lectura) |
 | Sincronización: carpeta, registro del equipo, pasadas manuales y por horario, conflictos | ✔ |
 | Fotos: álbumes, miniaturas y ver la imagen completa | ✔ |
-| Videos: catálogo y reproducción HLS en el reproductor del sistema | ✔ |
+| Videos: catálogo y reproducción HLS dentro de la ventana, con sonido y pausa | ✔ |
 | Trabajos MPI: enviar, ver salida, cancelar, nodos | ✔ |
 | Monitoreo: CPU, memoria, disco y estado de los servicios | ✔ |
 | Administración: altas, cuotas, bajas y sesiones | ✔ |
@@ -109,12 +109,21 @@ aviso correspondiente en vez de fallar al abrirlas.
 
 ## Video
 
-Fyne no trae reproductor de video, y escribir uno para HLS sería rehacer lo que
-el sistema operativo ya tiene. Al pulsar **Reproducir**, la aplicación abre el
-flujo HLS en el reproductor del equipo (QuickTime o Safari en macOS; VLC o mpv
-en Linux). El video sigue viniendo del servidor a través del bus, en trozos: no
-se descarga entero. Como un reproductor externo no manda encabezados, el token
-viaja en la URL, que es algo que el bus y el servicio aceptan para este caso.
+El video se reproduce **dentro de la ventana**. Fyne no trae reproductor, así
+que hay uno propio en `internal/reproductor`: ffmpeg descodifica el flujo HLS
+que entrega el bus y lo parte en dos salidas del mismo proceso —los cuadros en
+crudo por la salida estándar y el sonido por un socket local—, la ventana pinta
+los cuadros según llegan y el sonido va a la tarjeta con `oto` (Apache-2.0).
+ffmpeg lee con `-re`, al ritmo real del video, así que imagen y sonido llegan
+acompasados sin sincronizarlos a mano. Pausar deja de leer: ffmpeg se bloquea
+al escribir y la reproducción queda donde está.
+
+El video no se descarga entero: HLS lo sirve en trozos y ffmpeg los va pidiendo
+al bus según avanza.
+
+Requiere **ffmpeg** en el equipo (`brew install ffmpeg`, `apt install ffmpeg`).
+Si no está, el botón abre el flujo en el reproductor del sistema; en ese caso el
+token viaja en la URL, porque un reproductor externo no manda encabezados.
 
 ## Pruebas
 

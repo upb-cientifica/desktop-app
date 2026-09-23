@@ -2,24 +2,25 @@ package ui
 
 import (
 	"context"
+	"image"
 	"net/url"
+	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/upb-cientifica/desktop-app/internal/bus"
+	"github.com/upb-cientifica/desktop-app/internal/reproductor"
 )
 
-// vistaVideos lista el catálogo de Streaming.
-//
-// La reproducción no se dibuja aquí: Fyne no trae reproductor de video, y
-// escribir uno para HLS sería rehacer lo que el sistema ya tiene. Al pulsar
-// Reproducir se abre el flujo HLS en el reproductor del equipo (en macOS,
-// QuickTime o Safari; en Linux, VLC o mpv). El video sigue viniendo del
-// servidor por el bus, en trozos: no se descarga entero.
+// vistaVideos lista el catálogo de Streaming y lo reproduce dentro de la
+// ventana (ver internal/reproductor). Si el equipo no tiene ffmpeg, que es lo
+// que descodifica, queda la salida de emergencia: abrir el flujo en el
+// reproductor del sistema.
 type vistaVideos struct {
 	app    *App
 	videos []bus.Video
@@ -60,7 +61,12 @@ func (a *App) vistaVideos() fyne.CanvasObject {
 		widget.NewButtonWithIcon("Actualizar", theme.ViewRefreshIcon(), v.cargar),
 		widget.NewButtonWithIcon("Publicar uno de Mi unidad", theme.UploadIcon(), v.publicar),
 	)
-	nota := widget.NewLabel("El video se abre en el reproductor del equipo; el flujo HLS llega por el Service Bus, en trozos.")
+	texto := "El video se reproduce aquí mismo; el flujo HLS llega por el Service Bus, en trozos."
+	if !reproductor.Disponible() {
+		texto = "Para reproducir dentro de la aplicación hace falta ffmpeg en el equipo. " +
+			"Mientras tanto, el video se abre en el reproductor del sistema."
+	}
+	nota := widget.NewLabel(texto)
 	nota.Wrapping = fyne.TextWrapWord
 
 	v.cargar()
@@ -95,16 +101,24 @@ func (v *vistaVideos) acciones(vid bus.Video) {
 
 	reproducir := widget.NewButtonWithIcon("Reproducir", theme.MediaPlayIcon(), func() {
 		d.Hide()
-		v.reproducir(vid)
+		if reproductor.Disponible() {
+			v.reproducirAqui(vid)
+		} else {
+			v.abrirEnElSistema(vid)
+		}
 	})
 	reproducir.Importance = widget.HighImportance
+	enElSistema := widget.NewButtonWithIcon("Abrir en el reproductor del sistema", theme.ComputerIcon(), func() {
+		d.Hide()
+		v.abrirEnElSistema(vid)
+	})
 	copiar := widget.NewButtonWithIcon("Copiar el enlace del flujo", theme.ContentCopyIcon(), func() {
 		d.Hide()
 		v.app.win.Clipboard().SetContent(v.app.cli.URLDelManifiesto(vid.ID))
 	})
 
 	d = dialog.NewCustom(vid.Titulo, "Cerrar",
-		container.NewVBox(detalle, aviso, reproducir, copiar), v.app.win)
+		container.NewVBox(detalle, aviso, reproducir, enElSistema, copiar), v.app.win)
 	d.Show()
 
 	enSegundoPlano(func(ctx context.Context) (bus.Video, error) {
@@ -121,9 +135,9 @@ func (v *vistaVideos) acciones(vid bus.Video) {
 	})
 }
 
-// reproducir abre el flujo HLS en el reproductor del sistema. El token viaja
+// abrirEnElSistema entrega el flujo al reproductor del equipo. El token viaja
 // en la URL porque un reproductor externo no manda encabezados.
-func (v *vistaVideos) reproducir(vid bus.Video) {
+func (v *vistaVideos) abrirEnElSistema(vid bus.Video) {
 	enlace, err := url.Parse(v.app.cli.URLDelManifiesto(vid.ID))
 	if err != nil {
 		v.app.error(err)
@@ -200,4 +214,81 @@ func duracion(segundos int64) string {
 		texto += "0"
 	}
 	return texto + itoa(s)
+}
+
+// reproducirAqui abre el video dentro de la aplicación: ffmpeg descodifica el
+// flujo que sirve el bus y la ventana pinta los cuadros según llegan.
+func (v *vistaVideos) reproducirAqui(vid bus.Video) {
+	const ancho = 720
+	url := v.app.cli.URLDelManifiesto(vid.ID)
+
+	lienzo := canvas.NewImageFromImage(image.NewRGBA(image.Rect(0, 0, ancho, ancho*9/16)))
+	lienzo.FillMode = canvas.ImageFillContain
+	estado := widget.NewLabel("Preparando el video…")
+	pausa := widget.NewButtonWithIcon("Pausa", theme.MediaPauseIcon(), nil)
+	pausa.Disable()
+
+	marco := container.NewGridWrap(fyne.NewSize(ancho, float32(ancho)*9/16), lienzo)
+	contenido := container.NewBorder(nil, container.NewVBox(estado, pausa), nil, nil, marco)
+
+	var sesion *reproductor.Sesion
+	d := dialog.NewCustom(vid.Titulo, "Cerrar", contenido, v.app.win)
+	d.SetOnClosed(func() {
+		if sesion != nil {
+			sesion.Cerrar()
+		}
+	})
+	d.Show()
+
+	go func() {
+		ctx, cancelar := context.WithCancel(context.Background())
+		defer cancelar()
+
+		medidas, err := reproductor.Medir(ctx, url)
+		if err != nil {
+			fyne.Do(func() { estado.SetText("No se pudo leer el video: " + err.Error()) })
+			return
+		}
+		s, err := reproductor.Abrir(ctx, url, ancho, medidas)
+		if err != nil {
+			fyne.Do(func() { estado.SetText("No se pudo reproducir: " + err.Error()) })
+			return
+		}
+		sesion = s
+
+		fyne.Do(func() {
+			pausa.Enable()
+			pausa.OnTapped = func() {
+				if s.EnPausa() {
+					s.Reanudar()
+					pausa.SetText("Pausa")
+					pausa.SetIcon(theme.MediaPauseIcon())
+				} else {
+					s.Pausar()
+					pausa.SetText("Reanudar")
+					pausa.SetIcon(theme.MediaPlayIcon())
+				}
+			}
+		})
+
+		for cuadro := range s.Cuadros {
+			img := cuadro
+			fyne.Do(func() {
+				lienzo.Image = img
+				lienzo.Refresh()
+				estado.SetText(reloj(s.Transcurrido()) + " / " + reloj(medidas.Duracion))
+			})
+		}
+
+		if err := <-s.Terminado; err != nil {
+			fyne.Do(func() { estado.SetText("La reproducción se cortó: " + err.Error()) })
+			return
+		}
+		fyne.Do(func() { estado.SetText("Fin del video.") })
+	}()
+}
+
+// reloj deja una duración como 1:52.
+func reloj(d time.Duration) string {
+	return duracion(int64(d / time.Second))
 }
