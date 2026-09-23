@@ -60,8 +60,11 @@ func (a *App) vistaVideos() fyne.CanvasObject {
 		widget.NewButtonWithIcon("Actualizar", theme.ViewRefreshIcon(), v.cargar),
 		widget.NewButtonWithIcon("Publicar uno de Mi unidad", theme.UploadIcon(), v.publicar),
 	)
+	nota := widget.NewLabel("El video se abre en el reproductor del equipo; el flujo HLS llega por el Service Bus, en trozos.")
+	nota.Wrapping = fyne.TextWrapWord
+
 	v.cargar()
-	return container.NewBorder(container.NewVBox(barra, v.estado), nil, nil, nil, v.lista)
+	return container.NewBorder(container.NewVBox(barra, v.estado, nota), nil, nil, nil, v.lista)
 }
 
 func (v *vistaVideos) cargar() {
