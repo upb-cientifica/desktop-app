@@ -29,7 +29,7 @@ type vistaVideos struct {
 	estado *widget.Label
 }
 
-func (a *App) vistaVideos() fyne.CanvasObject {
+func (a *App) vistaVideos() (fyne.CanvasObject, func()) {
 	v := &vistaVideos{app: a}
 	v.estado = widget.NewLabel("Cargando catálogo…")
 
@@ -80,7 +80,7 @@ func (a *App) vistaVideos() fyne.CanvasObject {
 	nota.Wrapping = fyne.TextWrapWord
 
 	v.cargar()
-	return container.NewBorder(container.NewVBox(barra, v.estado, nota), nil, nil, nil, v.lista)
+	return container.NewBorder(container.NewVBox(barra, v.estado, nota), nil, nil, nil, v.lista), v.cargar
 }
 
 func (v *vistaVideos) cargar() {
@@ -126,7 +126,7 @@ func (v *vistaVideos) acciones(vid bus.Video) {
 		d.Hide()
 		v.app.win.Clipboard().SetContent(v.app.cli.URLDelManifiesto(vid.ID))
 	})
-	eliminar := widget.NewButtonWithIcon("Quitar del catálogo", theme.DeleteIcon(), func() {
+	eliminar := widget.NewButtonWithIcon("Mover a la papelera", theme.DeleteIcon(), func() {
 		d.Hide()
 		v.eliminar(vid)
 	})
@@ -334,15 +334,23 @@ func reloj(d time.Duration) string {
 	return duracion(int64(d / time.Second))
 }
 
+// eliminar saca el video del catálogo y manda a la papelera el archivo del
+// que salió, que es lo que espera quien lo borra: que desaparezca y se pueda
+// recuperar desde la Papelera. Restaurarlo devuelve el archivo a Mi unidad,
+// pero no lo vuelve a publicar en Videos.
 func (v *vistaVideos) eliminar(vid bus.Video) {
-	dialog.ShowConfirm("Quitar del catálogo",
-		"¿Quitar \""+vid.Titulo+"\" de Videos? El archivo original sigue en Mi unidad.",
+	dialog.ShowConfirm("Mover a la papelera",
+		"¿Mover \""+vid.Titulo+"\" a la papelera? Deja de estar en Videos y el archivo "+
+			"se puede recuperar desde la Papelera.",
 		func(ok bool) {
 			if !ok {
 				return
 			}
 			enSegundoPlano(func(ctx context.Context) (struct{}, error) {
-				return struct{}{}, v.app.cli.EliminarVideo(ctx, vid.ID)
+				if err := v.app.cli.EliminarVideo(ctx, vid.ID); err != nil {
+					return struct{}{}, err
+				}
+				return struct{}{}, v.app.aLaPapelera(ctx, vid.OrigenHome)
 			}, func(_ struct{}, err error) {
 				if err != nil {
 					v.app.error(err)

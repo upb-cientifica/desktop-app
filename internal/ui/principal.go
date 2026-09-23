@@ -21,31 +21,31 @@ type seccion struct {
 	icono     fyne.Resource
 	servicio  string
 	soloAdmin bool
-	abrir     func() fyne.CanvasObject
+	abrir     func() (fyne.CanvasObject, func())
 }
 
 func (a *App) secciones() []seccion {
 	return []seccion{
 		{nombre: "Mi unidad", icono: theme.StorageIcon(), servicio: "shared_file",
-			abrir: func() fyne.CanvasObject { return a.vistaArchivos(bus.MiUnidad) }},
+			abrir: func() (fyne.CanvasObject, func()) { return a.vistaArchivos(bus.MiUnidad) }},
 		{nombre: "Compartido conmigo", icono: theme.AccountIcon(), servicio: "shared_file",
-			abrir: func() fyne.CanvasObject { return a.vistaCompartidos() }},
+			abrir: func() (fyne.CanvasObject, func()) { return a.vistaCompartidos() }},
 		{nombre: "Destacados", icono: theme.ConfirmIcon(), servicio: "shared_file",
-			abrir: func() fyne.CanvasObject { return a.vistaArchivos(bus.Destacados) }},
+			abrir: func() (fyne.CanvasObject, func()) { return a.vistaArchivos(bus.Destacados) }},
 		{nombre: "Papelera", icono: theme.DeleteIcon(), servicio: "shared_file",
-			abrir: func() fyne.CanvasObject { return a.vistaArchivos(bus.Papelera) }},
+			abrir: func() (fyne.CanvasObject, func()) { return a.vistaArchivos(bus.Papelera) }},
 		{nombre: "Sincronización", icono: theme.ViewRefreshIcon(), servicio: "file_sync",
-			abrir: func() fyne.CanvasObject { return a.vistaSincronizacion() }},
+			abrir: func() (fyne.CanvasObject, func()) { return a.vistaSincronizacion() }},
 		{nombre: "Fotos", icono: theme.MediaPhotoIcon(), servicio: "photo_album",
-			abrir: func() fyne.CanvasObject { return a.vistaFotos() }},
+			abrir: func() (fyne.CanvasObject, func()) { return a.vistaFotos() }},
 		{nombre: "Videos", icono: theme.MediaVideoIcon(), servicio: "streaming",
-			abrir: func() fyne.CanvasObject { return a.vistaVideos() }},
+			abrir: func() (fyne.CanvasObject, func()) { return a.vistaVideos() }},
 		{nombre: "Trabajos MPI", icono: theme.ComputerIcon(), servicio: "hpc",
-			abrir: func() fyne.CanvasObject { return a.vistaTrabajos() }},
+			abrir: func() (fyne.CanvasObject, func()) { return a.vistaTrabajos() }},
 		{nombre: "Monitoreo", icono: theme.InfoIcon(), servicio: "monitoreo",
-			abrir: func() fyne.CanvasObject { return a.vistaMonitoreo() }},
+			abrir: func() (fyne.CanvasObject, func()) { return a.vistaMonitoreo() }},
 		{nombre: "Administración", icono: theme.SettingsIcon(), servicio: "", soloAdmin: true,
-			abrir: func() fyne.CanvasObject { return a.vistaAdministracion() }},
+			abrir: func() (fyne.CanvasObject, func()) { return a.vistaAdministracion() }},
 	}
 }
 
@@ -79,22 +79,30 @@ func (a *App) mostrarPrincipal() {
 
 	// Cada sección se arma una sola vez y se guarda: volver a ella conserva la
 	// carpeta donde ibas y no deja corriendo dos veces el refresco del
-	// Monitoreo, que se actualiza solo.
-	armadas := map[string]fyne.CanvasObject{}
+	// Monitoreo, que se actualiza solo. Pero al volver se recargan sus datos:
+	// si no, lo que cambió desde otra sección —un archivo que se mandó a la
+	// papelera desde Mi unidad— no aparecía hasta pulsar Actualizar.
+	type armada struct {
+		vista     fyne.CanvasObject
+		refrescar func()
+	}
+	armadas := map[string]armada{}
 
 	menu.OnSelected = func(i widget.ListItemID) {
 		s := secs[i]
 		titulo.SetText(s.nombre)
-		vista, lista := armadas[s.nombre]
-		if !lista {
-			if a.tieneServicio(s.servicio) {
-				vista = s.abrir()
-			} else {
-				vista = sinPermiso(s.nombre)
-			}
-			armadas[s.nombre] = vista
+		ya, existe := armadas[s.nombre]
+		switch {
+		case existe && ya.refrescar != nil:
+			ya.refrescar()
+		case !existe && a.tieneServicio(s.servicio):
+			ya.vista, ya.refrescar = s.abrir()
+			armadas[s.nombre] = ya
+		case !existe:
+			ya.vista = sinPermiso(s.nombre)
+			armadas[s.nombre] = ya
 		}
-		area.Objects = []fyne.CanvasObject{vista}
+		area.Objects = []fyne.CanvasObject{ya.vista}
 		area.Refresh()
 	}
 
@@ -153,7 +161,29 @@ func (a *App) barraCuota() fyne.CanvasObject {
 }
 
 func (a *App) menuCuenta(u bus.Usuario) {
-	contenido := widget.NewLabel(u.Nombre + "\n" + u.Correo + "\nRol: " + u.Rol)
+	nombres := map[Preferencia]string{
+		TemaSistema: "Como el sistema",
+		TemaClaro:   "Claro",
+		TemaOscuro:  "Oscuro",
+	}
+	tema := widget.NewRadioGroup(
+		[]string{nombres[TemaSistema], nombres[TemaClaro], nombres[TemaOscuro]},
+		func(elegido string) {
+			for p, n := range nombres {
+				if n == elegido {
+					a.aplicarTema(p)
+				}
+			}
+		})
+	tema.Horizontal = true
+	tema.SetSelected(nombres[a.preferenciaDeTema()])
+
+	contenido := container.NewVBox(
+		widget.NewLabel(u.Nombre+"\n"+u.Correo+"\nRol: "+u.Rol),
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("Tema", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		tema,
+	)
 	d := dialog.NewCustomConfirm("Tu cuenta", "Cerrar sesión", "Volver", contenido, func(salir bool) {
 		if !salir {
 			return

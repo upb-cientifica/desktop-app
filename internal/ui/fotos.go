@@ -29,7 +29,7 @@ type vistaFotos struct {
 	albumID string
 }
 
-func (a *App) vistaFotos() fyne.CanvasObject {
+func (a *App) vistaFotos() (fyne.CanvasObject, func()) {
 	v := &vistaFotos{app: a}
 	v.estado = widget.NewLabel("Cargando fotos…")
 	v.rejilla = container.NewGridWrap(fyne.NewSize(180, 200))
@@ -56,7 +56,10 @@ func (a *App) vistaFotos() fyne.CanvasObject {
 	v.cargarAlbums()
 	v.cargarFotos()
 	return container.NewBorder(container.NewVBox(barra, v.estado), nil, nil, nil,
-		container.NewScroll(v.rejilla))
+			container.NewScroll(v.rejilla)), func() {
+			v.cargarAlbums()
+			v.cargarFotos()
+		}
 }
 
 func (v *vistaFotos) cargarAlbums() {
@@ -240,7 +243,7 @@ func (v *vistaFotos) acciones(im bus.Imagen) {
 		v.abrir(im)
 	})
 	ver.Importance = widget.HighImportance
-	quitar := widget.NewButtonWithIcon("Quitar de Fotos", theme.DeleteIcon(), func() {
+	quitar := widget.NewButtonWithIcon("Mover a la papelera", theme.DeleteIcon(), func() {
 		d.Hide()
 		v.quitar(im)
 	})
@@ -250,17 +253,21 @@ func (v *vistaFotos) acciones(im bus.Imagen) {
 	d.Show()
 }
 
-// quitar la saca del álbum. El archivo original sigue en Mi unidad, porque el
-// Álbum guarda su propia copia de lo que recogió del Home.
+// quitar la saca del álbum y manda a la papelera el archivo del Home del que
+// salió, para que se pueda recuperar desde ahí.
 func (v *vistaFotos) quitar(im bus.Imagen) {
-	dialog.ShowConfirm("Quitar de Fotos",
-		"¿Quitar \""+im.Titulo+"\" del álbum? El archivo sigue en Mi unidad.",
+	dialog.ShowConfirm("Mover a la papelera",
+		"¿Mover \""+im.Titulo+"\" a la papelera? Deja de estar en Fotos y el archivo "+
+			"se puede recuperar desde la Papelera.",
 		func(ok bool) {
 			if !ok {
 				return
 			}
 			enSegundoPlano(func(ctx context.Context) (struct{}, error) {
-				return struct{}{}, v.app.cli.EliminarImagen(ctx, im.ID)
+				if err := v.app.cli.EliminarImagen(ctx, im.ID); err != nil {
+					return struct{}{}, err
+				}
+				return struct{}{}, v.app.aLaPapelera(ctx, im.OrigenHome)
 			}, func(_ struct{}, err error) {
 				if err != nil {
 					v.app.error(err)

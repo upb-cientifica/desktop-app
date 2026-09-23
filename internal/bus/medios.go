@@ -92,7 +92,7 @@ type Video struct {
 	TamanoBytes Numero `json:"tamanoBytes"`
 	PublicadoEn string `json:"publicadoEn"`
 	HlsListo    bool   `json:"hlsListo"`
-	OrigenHome  string `json:"origenHome"`
+	OrigenHome  string `json:"origenHome"` // archivo del Home del que salió
 }
 
 func (c *Cliente) Videos(ctx context.Context) ([]Video, error) {

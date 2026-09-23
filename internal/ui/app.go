@@ -39,6 +39,7 @@ type App struct {
 
 func Nueva(cfg config.Config, cli *bus.Cliente, ses *sesion.Sesion) *App {
 	a := &App{fyne: app.NewWithID("co.edu.upb.cientifica.escritorio"), cfg: cfg, cli: cli, ses: ses}
+	a.aplicarTema(a.preferenciaDeTema())
 	a.win = a.fyne.NewWindow("UPB-CIENTÍFICA")
 	a.win.Resize(fyne.NewSize(1100, 720))
 	a.win.CenterOnScreen()
@@ -114,7 +115,34 @@ func (a *App) sincro() (*sincro.Cliente, error) {
 	return cli, nil
 }
 
+// preferenciaDeTema lee lo que eligió el usuario; por defecto, seguir al
+// sistema operativo.
+func (a *App) preferenciaDeTema() Preferencia {
+	switch p := Preferencia(a.fyne.Preferences().StringWithFallback("tema", string(TemaSistema))); p {
+	case TemaClaro, TemaOscuro:
+		return p
+	default:
+		return TemaSistema
+	}
+}
+
+// aplicarTema cambia el tema en caliente y lo recuerda para la próxima vez.
+func (a *App) aplicarTema(p Preferencia) {
+	a.fyne.Preferences().SetString("tema", string(p))
+	a.fyne.Settings().SetTheme(temaUPB{preferencia: p})
+}
+
 func defaultCarpetaSincro() string { return config.CarpetaSincroPorDefecto() }
+
+// aLaPapelera manda a la papelera el archivo del Home del que salió una foto
+// o un video. Si no se sabe de cuál salió —publicaciones viejas, o subidas que
+// no pasaron por el Home— no hay nada que mover.
+func (a *App) aLaPapelera(ctx context.Context, rutaHome string) error {
+	if rutaHome == "" {
+		return nil
+	}
+	return a.cli.Eliminar(ctx, rutaHome, false)
+}
 
 func legible(bytes int64) string { return bus.Legible(bytes) }
 

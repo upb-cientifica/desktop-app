@@ -23,7 +23,7 @@ type vistaTrabajos struct {
 	estado   *widget.Label
 }
 
-func (a *App) vistaTrabajos() fyne.CanvasObject {
+func (a *App) vistaTrabajos() (fyne.CanvasObject, func()) {
 	v := &vistaTrabajos{app: a}
 	v.estado = widget.NewLabel("Consultando el clúster…")
 
@@ -61,7 +61,7 @@ func (a *App) vistaTrabajos() fyne.CanvasObject {
 		widget.NewButtonWithIcon("Actualizar", theme.ViewRefreshIcon(), v.cargar),
 	)
 	v.cargar()
-	return container.NewBorder(container.NewVBox(barra, v.estado), nil, nil, nil, v.lista)
+	return container.NewBorder(container.NewVBox(barra, v.estado), nil, nil, nil, v.lista), v.cargar
 }
 
 func (v *vistaTrabajos) cargar() {

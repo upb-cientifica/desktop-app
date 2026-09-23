@@ -34,12 +34,12 @@ type vistaSincronizacion struct {
 	corriendo       bool
 }
 
-func (a *App) vistaSincronizacion() fyne.CanvasObject {
+func (a *App) vistaSincronizacion() (fyne.CanvasObject, func()) {
 	v := &vistaSincronizacion{
 		app:      a,
 		programa: sincro.CargarPrograma(a.cfg.DirDatos, defaultCarpetaSincro()),
 	}
-	return v.construir()
+	return v.construir(), v.refrescarEstado
 }
 
 func (v *vistaSincronizacion) construir() fyne.CanvasObject {

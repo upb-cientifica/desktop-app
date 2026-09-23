@@ -25,7 +25,7 @@ type vistaMonitoreo struct {
 	detener             chan struct{}
 }
 
-func (a *App) vistaMonitoreo() fyne.CanvasObject {
+func (a *App) vistaMonitoreo() (fyne.CanvasObject, func()) {
 	v := &vistaMonitoreo{app: a, textos: map[string]*widget.Label{}, detener: make(chan struct{})}
 
 	v.cpu, v.memoria, v.disco = widget.NewProgressBar(), widget.NewProgressBar(), widget.NewProgressBar()
@@ -79,7 +79,7 @@ func (a *App) vistaMonitoreo() fyne.CanvasObject {
 	v.refrescar()
 	v.repetirCada(10 * time.Second)
 
-	return container.NewBorder(arriba, nil, nil, nil, v.servicios)
+	return container.NewBorder(arriba, nil, nil, nil, v.servicios), v.refrescar
 }
 
 func (v *vistaMonitoreo) repetirCada(cada time.Duration) {

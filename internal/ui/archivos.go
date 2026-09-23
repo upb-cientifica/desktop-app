@@ -17,16 +17,16 @@ import (
 
 // vistaArchivos dibuja el Home: Mi unidad y sus carpetas, Destacados o
 // Papelera. Las tres se listan igual y solo cambian las acciones.
-func (a *App) vistaArchivos(seccion bus.Seccion) fyne.CanvasObject {
+func (a *App) vistaArchivos(seccion bus.Seccion) (fyne.CanvasObject, func()) {
 	v := &vistaDeArchivos{app: a, seccion: seccion, ruta: "/"}
-	return v.construir()
+	return v.construir(), v.cargar
 }
 
 // vistaCompartidos lista lo que otras cuentas compartieron conmigo, que llega
 // como lista plana y con el propietario de cada archivo.
-func (a *App) vistaCompartidos() fyne.CanvasObject {
+func (a *App) vistaCompartidos() (fyne.CanvasObject, func()) {
 	v := &vistaDeArchivos{app: a, compartidos: true}
-	return v.construir()
+	return v.construir(), v.cargar
 }
 
 type vistaDeArchivos struct {

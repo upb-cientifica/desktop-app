@@ -26,7 +26,7 @@ type vistaAdministracion struct {
 	estado    *widget.Label
 }
 
-func (a *App) vistaAdministracion() fyne.CanvasObject {
+func (a *App) vistaAdministracion() (fyne.CanvasObject, func()) {
 	v := &vistaAdministracion{app: a}
 	v.estado = widget.NewLabel("Cargando el directorio…")
 
@@ -66,7 +66,7 @@ func (a *App) vistaAdministracion() fyne.CanvasObject {
 
 	v.cargarCatalogos()
 	v.cargar()
-	return container.NewBorder(container.NewVBox(barra, v.estado), nil, nil, nil, v.lista)
+	return container.NewBorder(container.NewVBox(barra, v.estado), nil, nil, nil, v.lista), v.cargar
 }
 
 func (v *vistaAdministracion) cargar() {
