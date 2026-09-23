@@ -117,9 +117,13 @@ func (v *vistaVideos) acciones(vid bus.Video) {
 		d.Hide()
 		v.app.win.Clipboard().SetContent(v.app.cli.URLDelManifiesto(vid.ID))
 	})
+	eliminar := widget.NewButtonWithIcon("Quitar del catálogo", theme.DeleteIcon(), func() {
+		d.Hide()
+		v.eliminar(vid)
+	})
 
 	d = dialog.NewCustom(vid.Titulo, "Cerrar",
-		container.NewVBox(detalle, aviso, reproducir, enElSistema, copiar), v.app.win)
+		container.NewVBox(detalle, aviso, reproducir, enElSistema, copiar, eliminar), v.app.win)
 	d.Show()
 
 	enSegundoPlano(func(ctx context.Context) (bus.Video, error) {
@@ -268,7 +272,13 @@ func (v *vistaVideos) reproducirAqui(vid bus.Video) {
 
 		medidas, err := reproductor.Medir(ctx, url)
 		if err != nil {
-			fyne.Do(func() { estado.SetText("No se pudo leer el video: " + err.Error()) })
+			// Lo normal aquí es que el servidor no tenga el video listo: o
+			// sigue convirtiéndolo, o la conversión falló y no hay nada que
+			// leer. El detalle técnico no le dice nada a quien mira.
+			fyne.Do(func() {
+				estado.SetText("El servidor no tiene este video listo para reproducir. " +
+					"Si acabas de publicarlo, espera un momento y vuelve a intentarlo.")
+			})
 			return
 		}
 		s, err := reproductor.Abrir(ctx, url, ancho, medidas)
@@ -313,4 +323,23 @@ func (v *vistaVideos) reproducirAqui(vid bus.Video) {
 // reloj deja una duración como 1:52.
 func reloj(d time.Duration) string {
 	return duracion(int64(d / time.Second))
+}
+
+func (v *vistaVideos) eliminar(vid bus.Video) {
+	dialog.ShowConfirm("Quitar del catálogo",
+		"¿Quitar \""+vid.Titulo+"\" de Videos? El archivo original sigue en Mi unidad.",
+		func(ok bool) {
+			if !ok {
+				return
+			}
+			enSegundoPlano(func(ctx context.Context) (struct{}, error) {
+				return struct{}{}, v.app.cli.EliminarVideo(ctx, vid.ID)
+			}, func(_ struct{}, err error) {
+				if err != nil {
+					v.app.error(err)
+					return
+				}
+				v.cargar()
+			})
+		}, v.app.win)
 }

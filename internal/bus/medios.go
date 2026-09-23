@@ -113,6 +113,11 @@ func (c *Cliente) URLDelManifiesto(id string) string {
 		map[string]string{"token": c.Token()})
 }
 
+// EliminarVideo quita un video del catálogo de Streaming.
+func (c *Cliente) EliminarVideo(ctx context.Context, id string) error {
+	return c.Pedir(ctx, http.MethodDelete, "streaming", "/videos/"+url.PathEscape(id), nil, nil)
+}
+
 // ImportarVideoDelHome publica en Streaming un video que ya está en el Home.
 // El servicio lo trae por RMI y lo empaqueta en HLS con ffmpeg.
 func (c *Cliente) ImportarVideoDelHome(ctx context.Context, rutaHome, titulo string) (Video, error) {
