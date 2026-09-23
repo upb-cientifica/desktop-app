@@ -84,8 +84,13 @@ func (v *vistaVideos) cargar() {
 	})
 }
 
+// acciones abre el detalle del video. Si está listo se puede reproducir de
+// una: el listado del servicio no dice si el empaquetado HLS terminó —eso solo
+// viene en el detalle—, así que se consulta al abrirlo.
 func (v *vistaVideos) acciones(vid bus.Video) {
 	detalle := widget.NewLabel(detalleLargoDeVideo(vid))
+	aviso := widget.NewLabel("")
+	aviso.Hide()
 	var d dialog.Dialog
 
 	reproducir := widget.NewButtonWithIcon("Reproducir", theme.MediaPlayIcon(), func() {
@@ -98,13 +103,22 @@ func (v *vistaVideos) acciones(vid bus.Video) {
 		v.app.win.Clipboard().SetContent(v.app.cli.URLDelManifiesto(vid.ID))
 	})
 
-	contenido := container.NewVBox(detalle, reproducir, copiar)
-	if !vid.HlsListo {
-		contenido = container.NewVBox(detalle,
-			widget.NewLabel("El servidor todavía está preparando este video. Inténtalo en un momento."))
-	}
-	d = dialog.NewCustom(vid.Titulo, "Cerrar", contenido, v.app.win)
+	d = dialog.NewCustom(vid.Titulo, "Cerrar",
+		container.NewVBox(detalle, aviso, reproducir, copiar), v.app.win)
 	d.Show()
+
+	enSegundoPlano(func(ctx context.Context) (bus.Video, error) {
+		return v.app.cli.Video(ctx, vid.ID)
+	}, func(completo bus.Video, err error) {
+		if err != nil {
+			return // que se pueda intentar igual: el servidor dirá si no puede
+		}
+		detalle.SetText(detalleLargoDeVideo(completo))
+		if !completo.HlsListo {
+			aviso.SetText("El servidor todavía está preparando este video; puede que aún no se vea.")
+			aviso.Show()
+		}
+	})
 }
 
 // reproducir abre el flujo HLS en el reproductor del sistema. El token viaja
@@ -153,10 +167,12 @@ func (v *vistaVideos) publicar() {
 	}, v.app.win)
 }
 
+// detalleDeVideo es la línea del listado. No dice si el HLS está listo porque
+// el listado del servicio no trae ese dato: se sabe al abrir el video.
 func detalleDeVideo(v bus.Video) string {
 	t := duracion(v.DuracionSeg.Int64())
-	if !v.HlsListo {
-		t += " · preparando"
+	if v.TamanoBytes > 0 {
+		t += " · " + legible(v.TamanoBytes.Int64())
 	}
 	return t
 }
