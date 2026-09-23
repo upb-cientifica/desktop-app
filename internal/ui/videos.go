@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"net/url"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -59,7 +60,7 @@ func (a *App) vistaVideos() fyne.CanvasObject {
 
 	barra := container.NewHBox(
 		widget.NewButtonWithIcon("Actualizar", theme.ViewRefreshIcon(), v.cargar),
-		widget.NewButtonWithIcon("Publicar uno de Mi unidad", theme.UploadIcon(), v.publicar),
+		widget.NewButtonWithIcon("Publicar un video", theme.UploadIcon(), v.publicar),
 	)
 	texto := "El video se reproduce aquí mismo; el flujo HLS llega por el Service Bus, en trozos."
 	if !reproductor.Disponible() {
@@ -148,37 +149,58 @@ func (v *vistaVideos) abrirEnElSistema(vid bus.Video) {
 	}
 }
 
-// publicar toma un video que ya está en el Home y lo manda a Streaming, que lo
-// recoge por RMI y lo empaqueta en HLS con ffmpeg.
+// publicar sube un video del equipo a Mi unidad y lo manda a Streaming, que lo
+// recoge del Home por RMI y lo empaqueta en HLS con ffmpeg. Son dos pasos
+// porque el catálogo de video no guarda archivos: siempre parte del Home.
 func (v *vistaVideos) publicar() {
-	ruta := widget.NewEntry()
-	ruta.SetPlaceHolder("/carpeta/video.mp4")
-	titulo := widget.NewEntry()
-
-	dialog.ShowForm("Publicar un video de Mi unidad", "Publicar", "Cancelar", []*widget.FormItem{
-		widget.NewFormItem("Ruta en Mi unidad", ruta),
-		widget.NewFormItem("Título", titulo),
-	}, func(ok bool) {
-		if !ok || ruta.Text == "" {
+	dialog.ShowFileOpen(func(lector fyne.URIReadCloser, err error) {
+		if err != nil || lector == nil {
 			return
 		}
-		espera := dialog.NewCustomWithoutButtons("Preparando el video",
-			widget.NewProgressBarInfinite(), v.app.win)
+		nombre := lector.URI().Name()
+		aviso := widget.NewLabel("Subiendo " + nombre + " a Mi unidad…")
+		espera := dialog.NewCustomWithoutButtons("Publicando",
+			container.NewVBox(aviso, widget.NewProgressBarInfinite()), v.app.win)
 		espera.Show()
-		enSegundoPlano(func(ctx context.Context) (bus.Video, error) {
-			// Convertir a HLS tarda: plazo propio y amplio.
-			ctx, cancelar := context.WithCancel(ctx)
+
+		go func() {
+			defer lector.Close()
+			// Subir y convertir tardan: plazo propio y amplio.
+			ctx, cancelar := context.WithTimeout(context.Background(), time.Hour)
 			defer cancelar()
-			return v.app.cli.ImportarVideoDelHome(ctx, ruta.Text, titulo.Text)
-		}, func(_ bus.Video, err error) {
-			espera.Hide()
+
+			nodo, err := v.app.cli.Subir(ctx, "/", nombre, lector)
 			if err != nil {
-				v.app.error(err)
+				fyne.Do(func() {
+					espera.Hide()
+					v.app.error(err)
+				})
 				return
 			}
-			v.cargar()
-		})
+			fyne.Do(func() { aviso.SetText("Preparando el video en el servidor…") })
+
+			_, err = v.app.cli.ImportarVideoDelHome(ctx, nodo.Ruta, sinExtension(nombre))
+			fyne.Do(func() {
+				espera.Hide()
+				if err != nil {
+					v.app.error(err)
+					return
+				}
+				v.cargar()
+				if v.app.refrescarCuota != nil {
+					v.app.refrescarCuota()
+				}
+			})
+		}()
 	}, v.app.win)
+}
+
+// sinExtension deja "clase-3.mp4" como "clase-3", que es mejor título.
+func sinExtension(nombre string) string {
+	if i := strings.LastIndex(nombre, "."); i > 0 {
+		return nombre[:i]
+	}
+	return nombre
 }
 
 // detalleDeVideo es la línea del listado. No dice si el HLS está listo porque

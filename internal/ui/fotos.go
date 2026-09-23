@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -45,6 +46,7 @@ func (a *App) vistaFotos() fyne.CanvasObject {
 
 	barra := container.NewHBox(
 		widget.NewLabel("Álbum:"), v.filtro,
+		widget.NewButtonWithIcon("Subir una foto", theme.UploadIcon(), v.subir),
 		widget.NewButtonWithIcon("Actualizar", theme.ViewRefreshIcon(), func() {
 			v.cargarAlbums()
 			v.cargarFotos()
@@ -165,4 +167,63 @@ func detalleDeFoto(im bus.Imagen) string {
 		t += " · viene de " + im.OrigenHome
 	}
 	return t
+}
+
+// albumPropio es donde caen las fotos que se suben desde aquí, igual que en la
+// aplicación web.
+const albumPropio = "Mi unidad"
+
+// subir manda una imagen del equipo a Mi unidad y la registra en Fotos. El
+// Álbum la recoge del Home por RMI: no se vuelve a subir desde aquí.
+func (v *vistaFotos) subir() {
+	dialog.ShowFileOpen(func(lector fyne.URIReadCloser, err error) {
+		if err != nil || lector == nil {
+			return
+		}
+		nombre := lector.URI().Name()
+		espera := dialog.NewCustomWithoutButtons("Subiendo "+nombre,
+			widget.NewProgressBarInfinite(), v.app.win)
+		espera.Show()
+
+		go func() {
+			defer lector.Close()
+			ctx, cancelar := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancelar()
+
+			nodo, err := v.app.cli.Subir(ctx, "/", nombre, lector)
+			if err == nil {
+				var album bus.Album
+				album, err = v.albumDeMiUnidad(ctx)
+				if err == nil {
+					_, err = v.app.cli.AgregarImagenDelHome(ctx, album.ID, nodo.Ruta, nombre)
+				}
+			}
+			fyne.Do(func() {
+				espera.Hide()
+				if err != nil {
+					v.app.error(err)
+					return
+				}
+				v.cargarAlbums()
+				v.cargarFotos()
+				if v.app.refrescarCuota != nil {
+					v.app.refrescarCuota()
+				}
+			})
+		}()
+	}, v.app.win)
+}
+
+// albumDeMiUnidad busca el álbum propio y lo crea si no existe.
+func (v *vistaFotos) albumDeMiUnidad(ctx context.Context) (bus.Album, error) {
+	albums, err := v.app.cli.Albums(ctx)
+	if err != nil {
+		return bus.Album{}, err
+	}
+	for _, a := range albums {
+		if a.Titulo == albumPropio && a.MiRol == "propietario" {
+			return a, nil
+		}
+	}
+	return v.app.cli.CrearAlbum(ctx, albumPropio)
 }
