@@ -31,6 +31,8 @@ type App struct {
 	// refrescarCuota lo instala el marco principal: las vistas lo llaman
 	// cuando cambian el contenido del Home.
 	refrescarCuota func()
+	// miUnidad es la vista de Mi unidad, donde el botón «Nuevo» sube y crea.
+	miUnidad *vistaDeArchivos
 
 	mu          sync.Mutex
 	sincroCli   *sincro.Cliente

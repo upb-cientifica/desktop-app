@@ -4,11 +4,13 @@ import (
 	"context"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -17,16 +19,19 @@ import (
 
 // vistaArchivos dibuja el Home: Mi unidad y sus carpetas, Destacados o
 // Papelera. Las tres se listan igual y solo cambian las acciones.
-func (a *App) vistaArchivos(seccion bus.Seccion) (fyne.CanvasObject, func()) {
+func (a *App) vistaArchivos(seccion bus.Seccion) armada {
 	v := &vistaDeArchivos{app: a, seccion: seccion, ruta: "/"}
-	return v.construir(), v.cargar
+	if seccion == bus.MiUnidad {
+		a.miUnidad = v
+	}
+	return armada{vista: v.construir(), refrescar: v.cargar, buscar: v.buscar, conTitulo: true}
 }
 
 // vistaCompartidos lista lo que otras cuentas compartieron conmigo, que llega
 // como lista plana y con el propietario de cada archivo.
-func (a *App) vistaCompartidos() (fyne.CanvasObject, func()) {
+func (a *App) vistaCompartidos() armada {
 	v := &vistaDeArchivos{app: a, compartidos: true}
-	return v.construir(), v.cargar
+	return armada{vista: v.construir(), refrescar: v.cargar, buscar: v.buscar, conTitulo: true}
 }
 
 type vistaDeArchivos struct {
@@ -34,52 +39,67 @@ type vistaDeArchivos struct {
 	seccion     bus.Seccion
 	compartidos bool
 
-	ruta   string
-	nodos  []bus.Nodo
+	ruta     string
+	nodos    []bus.Nodo // lo que devolvió el servicio
+	visibles []bus.Nodo // lo que queda tras el buscador y los chips
+	consulta string
+	tipo     string // "" todos, "imagen", "video"
+
 	lista  *widget.List
-	camino *widget.Label
+	titulo *fyne.Container
+	chips  []*pastilla
 	estado *widget.Label
-	raiz   *fyne.Container
 }
 
-func (v *vistaDeArchivos) construir() fyne.CanvasObject {
-	v.camino = widget.NewLabel("")
-	v.estado = widget.NewLabel("")
+// Columnas de la lista, como la tabla de la web: icono, nombre, propietario,
+// modificación, tamaño y el botón de acciones.
+var anchosDeArchivos = columnas{anchos: []float32{24, 0, 150, 150, 90, 36}}
 
-	// Cada fila es un borde: icono a la izquierda, y a la derecha el detalle
-	// con el botón de acciones; el nombre va en el centro, que es lo que se
-	// recorta si no cabe. NewBorder guarda primero los objetos del centro y
-	// luego los de los lados, así que el orden de Objects es nombre, icono,
-	// derecha.
+func (v *vistaDeArchivos) construir() fyne.CanvasObject {
+	v.titulo = container.NewHBox()
+	v.estado = widget.NewLabel("")
+	v.estado.Importance = widget.LowImportance
+
+	// Las filas se reciclan: cada pasada reescribe los textos y el botón.
 	v.lista = widget.NewList(
-		func() int { return len(v.nodos) },
+		func() int { return len(v.visibles) },
 		func() fyne.CanvasObject {
-			return container.NewBorder(nil, nil,
-				widget.NewIcon(theme.FileIcon()),
-				container.NewHBox(widget.NewLabel("tamaño"),
-					widget.NewButtonWithIcon("", theme.MoreVerticalIcon(), nil)),
-				widget.NewLabel("nombre"))
+			nombre := widget.NewLabel("nombre")
+			nombre.Truncation = fyne.TextTruncateEllipsis
+			mas := widget.NewButtonWithIcon("", theme.MoreVerticalIcon(), nil)
+			mas.Importance = widget.LowImportance
+			return container.New(anchosDeArchivos,
+				widget.NewIcon(iconoDocumento), nombre,
+				secundaria(), secundaria(), secundaria(), mas)
 		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
-			if i < 0 || i >= len(v.nodos) {
+			if i < 0 || i >= len(v.visibles) {
 				return
 			}
-			n := v.nodos[i]
-			fila := o.(*fyne.Container)
-			fila.Objects[0].(*widget.Label).SetText(n.Nombre)
-			fila.Objects[1].(*widget.Icon).SetResource(iconoDe(n))
-			derecha := fila.Objects[2].(*fyne.Container)
-			derecha.Objects[0].(*widget.Label).SetText(detalleDe(n))
-			// Las filas se reciclan: el botón se reasigna en cada pasada.
-			derecha.Objects[1].(*widget.Button).OnTapped = func() { v.acciones(n) }
+			n := v.visibles[i]
+			celdas := o.(*fyne.Container).Objects
+			celdas[0].(*widget.Icon).SetResource(iconoDe(n))
+			nombre := n.Nombre
+			if n.Destacado && v.seccion != bus.Destacados {
+				nombre += "  ★"
+			}
+			celdas[1].(*widget.Label).SetText(nombre)
+			celdas[2].(*widget.Label).SetText(v.propietario(n))
+			celdas[3].(*widget.Label).SetText(fecha(n.ModificadoEn))
+			tam := "—"
+			if !n.EsCarpeta {
+				tam = bus.Legible(n.TamanoBytes)
+			}
+			celdas[4].(*widget.Label).SetText(tam)
+			celdas[5].(*widget.Button).OnTapped = func() { v.acciones(n) }
 		},
 	)
 	v.lista.OnSelected = func(i widget.ListItemID) {
 		v.lista.Unselect(i)
-		if i < 0 || i >= len(v.nodos) {
+		if i < 0 || i >= len(v.visibles) {
 			return
 		}
-		n := v.nodos[i]
+		n := v.visibles[i]
 		if n.EsCarpeta && v.seccion == bus.MiUnidad && !v.compartidos {
 			v.ir(n.Ruta)
 			return
@@ -87,39 +107,117 @@ func (v *vistaDeArchivos) construir() fyne.CanvasObject {
 		v.acciones(n)
 	}
 
-	v.raiz = container.NewBorder(
-		container.NewVBox(v.barra(), v.camino),
-		v.estado, nil, nil,
-		v.lista,
-	)
+	encabezado := container.New(anchosDeArchivos, widget.NewLabel(""),
+		columna("Nombre"), columna("Propietario"), columna("Modificación"), columna("Tamaño"),
+		widget.NewLabel(""))
+
+	arriba := container.NewVBox(v.titulo, v.controles(),
+		container.New(layout.NewCustomPaddedLayout(8, 0, 0, 0), encabezado), widget.NewSeparator())
+	v.pintarTitulo()
 	v.cargar()
-	return v.raiz
+	return container.NewBorder(arriba, v.estado, nil, nil, v.lista)
 }
 
-func (v *vistaDeArchivos) barra() fyne.CanvasObject {
-	botones := []fyne.CanvasObject{}
+func secundaria() *widget.Label {
+	l := widget.NewLabel("")
+	l.Importance = widget.LowImportance
+	l.Truncation = fyne.TextTruncateEllipsis
+	return l
+}
 
-	if v.seccion == bus.MiUnidad && !v.compartidos {
-		botones = append(botones,
-			widget.NewButtonWithIcon("Subir archivo", theme.UploadIcon(), v.subir),
-			widget.NewButtonWithIcon("Nueva carpeta", theme.FolderNewIcon(), v.nuevaCarpeta),
-		)
-		atras := widget.NewButtonWithIcon("", theme.NavigateBackIcon(), func() {
-			v.ir(bus.Padre(v.ruta))
-		})
-		botones = append([]fyne.CanvasObject{atras}, botones...)
+func columna(texto string) *widget.Label {
+	return widget.NewLabelWithStyle(texto, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+}
+
+// controles son los chips de filtro y, a la derecha, lo propio de la sección.
+func (v *vistaDeArchivos) controles() fyne.CanvasObject {
+	opciones := []struct{ texto, tipo string }{
+		{"Todos", ""}, {"Fotos", "imagen"}, {"Videos", "video"},
 	}
+	fila := container.NewHBox()
+	for _, o := range opciones {
+		o := o
+		c := chip(o.texto, nil)
+		c.alTocar = func(*fyne.PointEvent) {
+			v.tipo = o.tipo
+			for _, otro := range v.chips {
+				otro.SetActivo(otro == c)
+			}
+			v.filtrar()
+		}
+		c.activo = o.tipo == ""
+		v.chips = append(v.chips, c)
+		fila.Add(c)
+	}
+
+	derecha := container.NewHBox()
 	if v.seccion == bus.Papelera {
-		botones = append(botones, widget.NewButtonWithIcon("Vaciar papelera", theme.DeleteIcon(), v.vaciarPapelera))
+		vaciar := widget.NewButtonWithIcon("Vaciar papelera", theme.DeleteIcon(), v.vaciarPapelera)
+		vaciar.Importance = widget.LowImportance
+		derecha.Add(vaciar)
 	}
-	botones = append(botones, widget.NewButtonWithIcon("Actualizar", theme.ViewRefreshIcon(), v.cargar))
-	return container.NewHBox(botones...)
+	actualizar := widget.NewButtonWithIcon("", theme.ViewRefreshIcon(), v.cargar)
+	actualizar.Importance = widget.LowImportance
+	derecha.Add(actualizar)
+
+	return container.New(layout.NewCustomPaddedLayout(4, 4, 0, 0),
+		container.NewBorder(nil, nil, fila, derecha))
+}
+
+// pintarTitulo escribe el título grande: el nombre de la sección o, dentro de
+// Mi unidad, la ruta de carpetas, donde cada tramo lleva de vuelta a ella.
+func (v *vistaDeArchivos) pintarTitulo() {
+	grande := func(t string) *widget.Label {
+		l := widget.NewLabel(t)
+		l.SizeName = tamTitulo
+		return l
+	}
+	v.titulo.Objects = nil
+	switch {
+	case v.compartidos:
+		v.titulo.Add(grande("Compartido conmigo"))
+	case v.seccion == bus.Destacados:
+		v.titulo.Add(grande("Destacados"))
+	case v.seccion == bus.Papelera:
+		v.titulo.Add(grande("Papelera"))
+		nota := widget.NewLabel("Lo eliminado se conserva hasta vaciar la papelera")
+		nota.Importance = widget.LowImportance
+		v.titulo.Add(nota)
+	case v.ruta == "/":
+		v.titulo.Add(grande("Mi unidad"))
+	default:
+		atras := widget.NewButtonWithIcon("", theme.NavigateBackIcon(), func() { v.ir(bus.Padre(v.ruta)) })
+		atras.Importance = widget.LowImportance
+		v.titulo.Add(container.NewCenter(atras))
+
+		tramos := strings.Split(strings.Trim(v.ruta, "/"), "/")
+		v.titulo.Add(v.tramo("Mi unidad", "/"))
+		for i, t := range tramos {
+			v.titulo.Add(grande("›"))
+			if i == len(tramos)-1 {
+				v.titulo.Add(grande(t))
+			} else {
+				v.titulo.Add(v.tramo(t, "/"+strings.Join(tramos[:i+1], "/")))
+			}
+		}
+	}
+	v.titulo.Refresh()
+}
+
+// tramo es un pedazo de la ruta que se puede pulsar.
+func (v *vistaDeArchivos) tramo(texto, ruta string) fyne.CanvasObject {
+	p := nuevaPastilla(texto, nil, func(*fyne.PointEvent) { v.ir(ruta) })
+	p.tam = theme.SizeForWidget(tamTitulo, p)
+	p.colorTexto = colorTexto2
+	p.izq, p.der, p.alto = 10, 10, 44
+	return container.NewCenter(p)
 }
 
 // ---------- datos ----------
 
 func (v *vistaDeArchivos) ir(ruta string) {
 	v.ruta = ruta
+	v.pintarTitulo()
 	v.cargar()
 }
 
@@ -142,29 +240,47 @@ func (v *vistaDeArchivos) cargar() {
 			return
 		}
 		v.nodos = ns
-		v.lista.Refresh()
-		v.camino.SetText(v.tituloDeRuta())
-		if len(ns) == 0 {
-			v.estado.SetText("Aquí no hay nada.")
-		} else {
-			v.estado.SetText(contar(ns))
-		}
+		v.filtrar()
 	})
 }
 
-func (v *vistaDeArchivos) tituloDeRuta() string {
-	switch {
-	case v.compartidos:
-		return "Archivos que otras cuentas compartieron contigo"
-	case v.seccion == bus.Destacados:
-		return "Archivos y carpetas destacados"
-	case v.seccion == bus.Papelera:
-		return "Lo eliminado se conserva hasta vaciar la papelera"
-	case v.ruta == "/":
-		return "Mi unidad"
-	default:
-		return "Mi unidad" + v.ruta
+// buscar lo llama el buscador de la barra de arriba.
+func (v *vistaDeArchivos) buscar(texto string) {
+	v.consulta = strings.ToLower(strings.TrimSpace(texto))
+	v.filtrar()
+}
+
+// filtrar aplica el buscador y los chips sobre lo que ya llegó, sin volver a
+// pedirlo al servidor.
+func (v *vistaDeArchivos) filtrar() {
+	v.visibles = v.visibles[:0]
+	for _, n := range v.nodos {
+		if v.consulta != "" && !strings.Contains(strings.ToLower(n.Nombre), v.consulta) {
+			continue
+		}
+		if v.tipo != "" && (n.EsCarpeta || n.Tipo != v.tipo) {
+			continue
+		}
+		v.visibles = append(v.visibles, n)
 	}
+	v.lista.Refresh()
+	switch {
+	case len(v.nodos) == 0:
+		v.estado.SetText("Aquí no hay nada.")
+	case len(v.visibles) == 0:
+		v.estado.SetText("Nada coincide con el filtro.")
+	default:
+		v.estado.SetText(contar(v.visibles))
+	}
+}
+
+// propietario dice «yo» para lo propio, como la web.
+func (v *vistaDeArchivos) propietario(n bus.Nodo) string {
+	u := v.app.ses.Usuario()
+	if n.Propietario == "" || n.Propietario == u.ID || strings.HasPrefix(u.Correo, n.Propietario+"@") {
+		return "yo"
+	}
+	return n.Propietario
 }
 
 // ---------- acciones ----------
@@ -412,24 +528,19 @@ func (v *vistaDeArchivos) trasCambiar(_ bus.Nodo, err error) {
 
 // ---------- presentación ----------
 
+// iconoDe usa los colores de la web: carpetas grises, fotos y videos en rojo
+// y el resto de documentos en azul.
 func iconoDe(n bus.Nodo) fyne.Resource {
 	switch {
 	case n.EsCarpeta:
-		return theme.FolderIcon()
+		return theme.NewColoredResource(iconoCarpeta, colorTexto2)
 	case n.Tipo == "imagen":
-		return theme.MediaPhotoIcon()
+		return theme.NewColoredResource(iconoImagen, theme.ColorNameError)
 	case n.Tipo == "video":
-		return theme.MediaVideoIcon()
+		return theme.NewColoredResource(iconoVideo, theme.ColorNameError)
 	default:
-		return theme.FileIcon()
+		return theme.NewColoredResource(iconoDocumento, theme.ColorNamePrimary)
 	}
-}
-
-func detalleDe(n bus.Nodo) string {
-	if n.EsCarpeta {
-		return fecha(n.ModificadoEn)
-	}
-	return bus.Legible(n.TamanoBytes) + " · " + fecha(n.ModificadoEn)
 }
 
 func detalleLargo(n bus.Nodo) string {

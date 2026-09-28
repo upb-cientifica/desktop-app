@@ -49,6 +49,17 @@ func blancoAlfa(alfa uint8) color.Color {
 	return color.NRGBA{R: 255, G: 255, B: 255, A: alfa}
 }
 
+// Colores y medidas propios, además de los que Fyne ya nombra: los grises
+// de superficie y el texto secundario que la web usa en chips, menús y
+// columnas.
+const (
+	colorTexto2      fyne.ThemeColorName = "upbTexto2"
+	colorSuperficie2 fyne.ThemeColorName = "upbSuperficie2"
+	colorSuperficie3 fyne.ThemeColorName = "upbSuperficie3"
+
+	tamTitulo fyne.ThemeSizeName = "upbTitulo"
+)
+
 // Preferencia de tema del usuario.
 type Preferencia string
 
@@ -118,6 +129,12 @@ func (t temaUPB) colorClaro(n fyne.ThemeColorName) color.Color {
 		return aviso
 	case theme.ColorNameError:
 		return fallo
+	case colorTexto2:
+		return rgb(0x5F6368)
+	case colorSuperficie2:
+		return rgb(0xF1F3F4)
+	case colorSuperficie3:
+		return rgb(0xE8EAED)
 	default:
 		return theme.DefaultTheme().Color(n, theme.VariantLight)
 	}
@@ -158,6 +175,12 @@ func (t temaUPB) colorOscuro(n fyne.ThemeColorName) color.Color {
 		return avisoOscuro
 	case theme.ColorNameError:
 		return falloOscuro
+	case colorTexto2:
+		return rgb(0xBDC1C6)
+	case colorSuperficie2:
+		return rgb(0x303134)
+	case colorSuperficie3:
+		return rgb(0x3C4043)
 	default:
 		return theme.DefaultTheme().Color(n, theme.VariantDark)
 	}
@@ -179,6 +202,8 @@ func (t temaUPB) Size(n fyne.ThemeSizeName) float32 {
 		return 10
 	case theme.SizeNamePadding:
 		return 5
+	case tamTitulo:
+		return 22
 	default:
 		return theme.DefaultTheme().Size(n)
 	}
