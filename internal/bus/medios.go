@@ -5,18 +5,22 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // ---------- Álbum de fotos ----------
 
 type Album struct {
-	ID          string `json:"id"`
-	Titulo      string `json:"titulo"`
-	Descripcion string `json:"descripcion"`
-	Proyecto    string `json:"proyecto"`
-	NumImagenes Numero `json:"numImagenes"`
-	MiRol       string `json:"miRol"`
-	Propietario string `json:"propietario"`
+	Publico       bool   `json:"publico"`
+	URLPublica    string `json:"urlPublica"`
+	CompartidoCon Lista  `json:"compartidoCon"`
+	ID            string `json:"id"`
+	Titulo        string `json:"titulo"`
+	Descripcion   string `json:"descripcion"`
+	Proyecto      string `json:"proyecto"`
+	NumImagenes   Numero `json:"numImagenes"`
+	MiRol         string `json:"miRol"`
+	Propietario   string `json:"propietario"`
 }
 
 type Imagen struct {
@@ -47,6 +51,42 @@ func (c *Cliente) Fotos(ctx context.Context, albumID string) ([]Imagen, error) {
 	}
 	err := c.Pedir(ctx, http.MethodGet, "photo_album", ruta, nil, &ims)
 	return ims, err
+}
+
+// BuscarFotos consulta el catálogo visible para la cuenta.
+func (c *Cliente) BuscarFotos(ctx context.Context, q, etiqueta string) ([]Imagen, error) {
+	var fotos []Imagen
+	err := c.Pedir(ctx, http.MethodGet, "photo_album", "/buscar", map[string]string{"q": q, "etiqueta": etiqueta}, &fotos)
+	return fotos, err
+}
+
+func (c *Cliente) ActualizarImagen(ctx context.Context, id, titulo, descripcion string, etiquetas []string) (Imagen, error) {
+	var imagen Imagen
+	err := c.Pedir(ctx, http.MethodPatch, "photo_album", "/imagenes/"+url.PathEscape(id),
+		map[string]string{"titulo": titulo, "descripcion": descripcion, "etiquetas": strings.Join(etiquetas, ",")}, &imagen)
+	return imagen, err
+}
+
+func (c *Cliente) CompartirAlbum(ctx context.Context, albumID, correo string, conceder bool) (Album, error) {
+	accion := "revoke"
+	if conceder {
+		accion = "grant"
+	}
+	var album Album
+	err := c.Pedir(ctx, http.MethodPost, "photo_album", "/albums/"+url.PathEscape(albumID)+"/compartir",
+		map[string]string{"correo": ACorreo(correo), "accion": accion}, &album)
+	return album, err
+}
+
+func (c *Cliente) PublicarAlbum(ctx context.Context, albumID string, activo bool) (Album, error) {
+	accion := "desactivar"
+	if activo {
+		accion = "activar"
+	}
+	var album Album
+	err := c.Pedir(ctx, http.MethodPost, "photo_album", "/albums/"+url.PathEscape(albumID)+"/publico",
+		map[string]string{"accion": accion}, &album)
+	return album, err
 }
 
 // Miniatura y Imagen entregan los bytes de una foto.

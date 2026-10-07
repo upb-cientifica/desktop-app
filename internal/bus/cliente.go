@@ -128,6 +128,14 @@ func (c *Cliente) PedirCuerpo(ctx context.Context, metodo, servicio, ruta string
 	if err != nil {
 		return err
 	}
+	// En PATCH un valor vacío borra el campo; no equivale a omitirlo.
+	if metodo == http.MethodPatch {
+		consulta := req.URL.Query()
+		for clave, valor := range params {
+			consulta.Set(clave, valor)
+		}
+		req.URL.RawQuery = consulta.Encode()
+	}
 	if t := c.Token(); t != "" {
 		req.Header.Set("Authorization", "Bearer "+t)
 	}

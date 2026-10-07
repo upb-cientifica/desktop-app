@@ -57,7 +57,7 @@ func (a *App) secciones() []seccion {
 		{nombre: "Papelera", icono: iconoPapelera, servicio: "shared_file",
 			abrir: func() armada { return a.vistaArchivos(bus.Papelera) }},
 		{nombre: "Fotos", icono: iconoFotos, servicio: "photo_album", grupo: 1,
-			abrir: simple(a.vistaFotos)},
+			abrir: a.vistaFotos},
 		{nombre: "Videos", icono: iconoPelicula, servicio: "streaming", grupo: 1,
 			abrir: simple(a.vistaVideos)},
 		{nombre: "Sincronización", icono: iconoSincro, servicio: "file_sync", grupo: 1,
