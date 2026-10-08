@@ -33,6 +33,9 @@ type App struct {
 	refrescarCuota func()
 	// miUnidad es la vista de Mi unidad, donde el botón «Nuevo» sube y crea.
 	miUnidad *vistaDeArchivos
+	// abrirEnMiUnidad lleva a Mi unidad y entra en una carpeta (lo usan los
+	// trabajos MPI para abrir sus resultados).
+	abrirEnMiUnidad func(ruta string)
 
 	mu          sync.Mutex
 	sincroCli   *sincro.Cliente

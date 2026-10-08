@@ -180,6 +180,9 @@ func (a *App) mostrarPrincipal() {
 			}
 		}
 	}
+	a.abrirEnMiUnidad = func(ruta string) {
+		enMiUnidad(func(v *vistaDeArchivos) { v.ir(ruta) })()
+	}
 	menuNuevo := fyne.NewMenu("",
 		fyne.NewMenuItemWithIcon("Subir archivo", theme.UploadIcon(),
 			enMiUnidad(func(v *vistaDeArchivos) { v.subir() })),

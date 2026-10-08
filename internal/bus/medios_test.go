@@ -100,3 +100,26 @@ func TestOperacionesDeFotos(t *testing.T) {
 		}
 	}
 }
+
+func TestTrabajoYSlots(t *testing.T) {
+	servidor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/hpc/trabajos/abc-123":
+			fmt.Fprint(w, `{"data":{"id":"abc-123","estado":"EJECUTANDO","progreso":42,"mensaje":"ejecutando en el clúster","rutaHome":"/HPC/k"}}`)
+		case "/hpc/slots":
+			fmt.Fprint(w, `{"data":{"slotsDisponibles":16}}`)
+		default:
+			t.Errorf("petición inesperada: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer servidor.Close()
+	cli := NuevoCliente(servidor.URL)
+	trabajo, err := cli.Trabajo(context.Background(), "abc-123")
+	if err != nil || trabajo.Estado != "EJECUTANDO" || trabajo.Progreso.Int64() != 42 || trabajo.RutaHome != "/HPC/k" {
+		t.Fatalf("trabajo: %+v, error: %v", trabajo, err)
+	}
+	slots, err := cli.SlotsDisponibles(context.Background())
+	if err != nil || slots != 16 {
+		t.Fatalf("slots: %d, error: %v", slots, err)
+	}
+}

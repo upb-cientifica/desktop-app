@@ -203,6 +203,22 @@ func (c *Cliente) Trabajos(ctx context.Context) ([]Trabajo, error) {
 	return ts, err
 }
 
+// Trabajo pide el estado actual de un trabajo.
+func (c *Cliente) Trabajo(ctx context.Context, id string) (Trabajo, error) {
+	var t Trabajo
+	err := c.Pedir(ctx, http.MethodGet, "hpc", "/trabajos/"+url.PathEscape(id), nil, &t)
+	return t, err
+}
+
+// SlotsDisponibles es la suma de slots de los nodos que responden.
+func (c *Cliente) SlotsDisponibles(ctx context.Context) (int, error) {
+	var r struct {
+		SlotsDisponibles Numero `json:"slotsDisponibles"`
+	}
+	err := c.Pedir(ctx, http.MethodGet, "hpc", "/slots", nil, &r)
+	return int(r.SlotsDisponibles.Int64()), err
+}
+
 func (c *Cliente) NodosDelCluster(ctx context.Context) ([]NodoCluster, error) {
 	var ns []NodoCluster
 	err := c.Pedir(ctx, http.MethodGet, "hpc", "/nodos", nil, &ns)
