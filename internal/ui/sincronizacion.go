@@ -182,7 +182,7 @@ func (v *vistaSincronizacion) abrirCarpeta() {
 func (v *vistaSincronizacion) registrar() {
 	nombre := widget.NewEntry()
 	nombre.SetText(nombreDeEsteEquipo())
-	dialog.ShowForm("Registrar este equipo", "Registrar", "Cancelar",
+	mostrarFormulario("Registrar este equipo", "Registrar", "Cancelar",
 		[]*widget.FormItem{widget.NewFormItem("Nombre", nombre)}, func(ok bool) {
 			if !ok || nombre.Text == "" {
 				return

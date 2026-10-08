@@ -117,7 +117,7 @@ func (v *vistaAdministracion) crear() {
 	}
 	grupo.SetSelected("Sin grupo")
 
-	dialog.ShowForm("Dar de alta una cuenta", "Crear", "Cancelar", []*widget.FormItem{
+	mostrarFormulario("Dar de alta una cuenta", "Crear", "Cancelar", []*widget.FormItem{
 		widget.NewFormItem("Nombre", nombre),
 		widget.NewFormItem("Correo", correo),
 		widget.NewFormItem("Contraseña", clave),
@@ -186,7 +186,7 @@ func (v *vistaAdministracion) acciones(u bus.Usuario) {
 		d.Hide()
 		entrada := widget.NewEntry()
 		entrada.SetText(strconv.FormatFloat(float64(u.CuotaBytes.Int64())/gb, 'f', 2, 64))
-		dialog.ShowForm("Cuota de "+u.Nombre, "Guardar", "Cancelar",
+		mostrarFormulario("Cuota de "+u.Nombre, "Guardar", "Cancelar",
 			[]*widget.FormItem{widget.NewFormItem("GB", entrada)}, func(ok bool) {
 				if !ok {
 					return

@@ -88,9 +88,9 @@ func (v *vistaTrabajos) enviar() {
 	rutaHome := widget.NewEntry()
 	rutaHome.SetPlaceHolder("/carpeta-del-trabajo")
 	procesos := widget.NewEntry()
-	procesos.SetText("2")
+	procesos.SetText("1")
 
-	dialog.ShowForm("Enviar trabajo MPI", "Enviar", "Cancelar", []*widget.FormItem{
+	mostrarFormulario("Enviar trabajo MPI", "Enviar", "Cancelar", []*widget.FormItem{
 		widget.NewFormItem("Nombre", nombre),
 		widget.NewFormItem("Comando", comando),
 		widget.NewFormItem("Carpeta en Mi unidad", rutaHome),

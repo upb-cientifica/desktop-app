@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -450,4 +451,13 @@ func (l columnas) Layout(os []fyne.CanvasObject, s fyne.Size) {
 		o.Move(fyne.NewPos(x, (s.Height-h)/2))
 		x += w + huecoColumnas
 	}
+}
+
+// mostrarFormulario es dialog.ShowForm con un ancho mínimo: sin él, Fyne ajusta
+// el diálogo al título y los campos quedan de unos pocos caracteres.
+func mostrarFormulario(titulo, confirmar, cancelar string, items []*widget.FormItem,
+	alCerrar func(bool), ventana fyne.Window) {
+	d := dialog.NewForm(titulo, confirmar, cancelar, items, alCerrar, ventana)
+	d.Resize(fyne.NewSize(560, d.MinSize().Height))
+	d.Show()
 }

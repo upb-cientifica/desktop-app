@@ -388,7 +388,7 @@ func (v *vistaDeArchivos) descargar(n bus.Nodo) {
 func (v *vistaDeArchivos) nuevaCarpeta() {
 	entrada := widget.NewEntry()
 	entrada.SetPlaceHolder("Nombre de la carpeta")
-	dialog.ShowForm("Nueva carpeta", "Crear", "Cancelar",
+	mostrarFormulario("Nueva carpeta", "Crear", "Cancelar",
 		[]*widget.FormItem{widget.NewFormItem("Nombre", entrada)},
 		func(ok bool) {
 			if !ok || entrada.Text == "" {
@@ -404,7 +404,7 @@ func (v *vistaDeArchivos) nuevaCarpeta() {
 func (v *vistaDeArchivos) renombrar(n bus.Nodo) {
 	entrada := widget.NewEntry()
 	entrada.SetText(n.Nombre)
-	dialog.ShowForm("Renombrar", "Guardar", "Cancelar",
+	mostrarFormulario("Renombrar", "Guardar", "Cancelar",
 		[]*widget.FormItem{widget.NewFormItem("Nombre", entrada)},
 		func(ok bool) {
 			if !ok || entrada.Text == "" || entrada.Text == n.Nombre {
@@ -472,7 +472,7 @@ func (v *vistaDeArchivos) compartir(n bus.Nodo) {
 
 	yaCompartido := widget.NewLabel(listaDeComparticiones(n))
 
-	dialog.ShowForm("Compartir "+n.Nombre, "Compartir", "Cancelar", []*widget.FormItem{
+	mostrarFormulario("Compartir "+n.Nombre, "Compartir", "Cancelar", []*widget.FormItem{
 		widget.NewFormItem("Con", correo),
 		widget.NewFormItem("Permiso", permiso),
 		widget.NewFormItem("Ahora mismo", yaCompartido),
