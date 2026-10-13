@@ -8,9 +8,10 @@ import (
 	"runtime"
 )
 
-// BusPorDefecto es el bus del despliegue del CCA. Se puede cambiar con la
+// BusPorDefecto es el bus del despliegue del CCA, por el nginx HTTPS de web2
+// (solo resuelve dentro de la red de la UPB). Se puede cambiar con la
 // variable UPB_BUS_URL, que es lo que se hace al probar contra un bus local.
-const BusPorDefecto = "http://10.154.12.210:8099/bus"
+const BusPorDefecto = "https://upb.lannister-news.com/bus"
 
 // SincroPorDefecto es el servidor gRPC de File Sync (no pasa por el bus: el
 // bus media REST, SOAP y RMI, y gRPC se habla directo).
