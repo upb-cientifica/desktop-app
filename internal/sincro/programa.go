@@ -10,21 +10,26 @@ import (
 	"time"
 )
 
-// El enunciado pide que la sincronización "pueda programarse de manera tal que
-// en un horario establecido se realice". Aquí están las dos formas de hacerlo:
-// cada cierto rato, o todos los días a una hora. El programa se guarda junto a
-// los datos de la aplicación, no dentro de la carpeta sincronizada, porque es
-// una preferencia de este equipo.
+// El enunciado pide una sincronización "automática y transparente" cuando el
+// equipo entra a la red interna, y que además "pueda programarse" en un horario.
+// Automático la dispara la red y los cambios de archivos (ver red.go); también
+// puede hacerse a mano, cada cierto rato o todos los días a una hora. El
+// programa se guarda junto a los datos de la aplicación, no dentro de la carpeta
+// sincronizada, porque es una preferencia de este equipo.
 
 type Modo string
 
 const (
-	Manual    Modo = "manual"
-	Intervalo Modo = "intervalo"
-	Diario    Modo = "diario"
+	Automatico Modo = "automatico"
+	Manual     Modo = "manual"
+	Intervalo  Modo = "intervalo"
+	Diario     Modo = "diario"
 )
 
 type Programa struct {
+	// SinCopiaLocal deja en el servidor lo que este equipo no tenga: solo se
+	// actualizan los archivos que ya están aquí (copia local opcional).
+	SinCopiaLocal    bool   `json:"sinCopiaLocal"`
 	Carpeta          string `json:"carpeta"`
 	Modo             Modo   `json:"modo"`
 	IntervaloMin     int    `json:"intervaloMin"` // para Intervalo
@@ -34,7 +39,7 @@ type Programa struct {
 }
 
 func ProgramaPorDefecto(carpeta string) Programa {
-	return Programa{Carpeta: carpeta, Modo: Manual, IntervaloMin: 15, Hora: "20:00"}
+	return Programa{Carpeta: carpeta, Modo: Automatico, IntervaloMin: 15, Hora: "20:00"}
 }
 
 func rutaPrograma(dirDatos string) string { return filepath.Join(dirDatos, "sincronizacion.json") }
@@ -91,6 +96,7 @@ func (p *Programador) arrancar() {
 		return
 	}
 	p.corriendo = true
+	parar := p.parar
 	p.mu.Unlock()
 
 	go func() {
@@ -98,7 +104,7 @@ func (p *Programador) arrancar() {
 		defer t.Stop()
 		for {
 			select {
-			case <-p.parar:
+			case <-parar:
 				return
 			case ahora := <-t.C:
 				if p.Toca(ahora) {
@@ -139,6 +145,8 @@ func (p *Programador) Toca(ahora time.Time) bool {
 func Toca(pr Programa, ahora time.Time) bool {
 	ultima := ultimaEjecucion(pr)
 	switch pr.Modo {
+	case Automatico:
+		return false
 	case Intervalo:
 		if ultima.IsZero() {
 			return true
@@ -187,6 +195,8 @@ func horaDe(hhmm string) (int, int, bool) {
 // Descripcion explica en una línea qué va a pasar, para mostrarlo en la ventana.
 func (pr Programa) Descripcion() string {
 	switch pr.Modo {
+	case Automatico:
+		return "Automático: al conectarte a la red de la UPB y cada vez que cambie un archivo"
 	case Intervalo:
 		return "Cada " + strconv.Itoa(pr.IntervaloMin) + " minutos"
 	case Diario:

@@ -26,23 +26,35 @@ type vistaSincronizacion struct {
 	app      *App
 	programa sincro.Programa
 
-	estadoTxt       *widget.Label
-	carpetaTxt      *widget.Label
-	bitacora        *widget.Entry
-	conflictos      *widget.List
-	listaConflictos []sincro.Conflicto
-	corriendo       bool
+	estadoTxt           *widget.Label
+	carpetaTxt          *widget.Label
+	bitacora            *widget.Entry
+	conflictos          *widget.List
+	listaConflictos     []sincro.Conflicto
+	corriendo           bool
+	pendiente           bool
+	pendienteSubir      bool
+	cancelar            context.CancelFunc
+	pendienteAutomatico bool
+	redTxt              *widget.Label
 }
 
 func (a *App) vistaSincronizacion() (fyne.CanvasObject, func()) {
+	if a.vistaSincro != nil {
+		return a.contenidoSincro, a.vistaSincro.refrescarEstado
+	}
 	v := &vistaSincronizacion{
 		app:      a,
 		programa: sincro.CargarPrograma(a.cfg.DirDatos, defaultCarpetaSincro()),
 	}
-	return v.construir(), v.refrescarEstado
+	a.vistaSincro = v
+	a.contenidoSincro = v.construir()
+	return a.contenidoSincro, v.refrescarEstado
 }
 
 func (v *vistaSincronizacion) construir() fyne.CanvasObject {
+	v.redTxt = widget.NewLabel("")
+	v.mostrarRed(v.app.vigia != nil && v.app.vigia.EnRed())
 	v.carpetaTxt = widget.NewLabel(v.programa.Carpeta)
 	v.estadoTxt = widget.NewLabel("Consultando el servidor…")
 	v.bitacora = widget.NewMultiLineEntry()
@@ -75,6 +87,8 @@ func (v *vistaSincronizacion) construir() fyne.CanvasObject {
 	arriba := container.NewVBox(
 		widget.NewLabelWithStyle("Carpeta sincronizada", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		v.carpetaTxt,
+		widget.NewLabel("Los archivos quedan en «Mi unidad › Sincronizados»."),
+		v.redTxt,
 		container.NewHBox(elegir, abrir, registrar),
 		widget.NewSeparator(),
 		v.cuadroPrograma(),
@@ -95,6 +109,7 @@ func (v *vistaSincronizacion) construir() fyne.CanvasObject {
 // cuadroPrograma es la parte "programable por horario" del requisito.
 func (v *vistaSincronizacion) cuadroPrograma() fyne.CanvasObject {
 	modos := map[string]sincro.Modo{
+		"Automático":                sincro.Automatico,
 		"Solo a mano":               sincro.Manual,
 		"Cada tantos minutos":       sincro.Intervalo,
 		"Todos los días a una hora": sincro.Diario,
@@ -114,6 +129,8 @@ func (v *vistaSincronizacion) cuadroPrograma() fyne.CanvasObject {
 	hora.SetText(v.programa.Hora)
 	borrados := widget.NewCheck("Propagar también los borrados", nil)
 	borrados.SetChecked(v.programa.PropagarBorrados)
+	copia := widget.NewCheck("Guardar en este equipo una copia de todo lo sincronizado", nil)
+	copia.SetChecked(!v.programa.SinCopiaLocal)
 	resumen := widget.NewLabel(v.programa.Descripcion())
 
 	filaMinutos := container.NewHBox(widget.NewLabel("Cada"), minutos, widget.NewLabel("minutos"))
@@ -134,6 +151,7 @@ func (v *vistaSincronizacion) cuadroPrograma() fyne.CanvasObject {
 		}
 		v.programa.Hora = hora.Text
 		v.programa.PropagarBorrados = borrados.Checked
+		v.programa.SinCopiaLocal = !copia.Checked
 		resumen.SetText(v.programa.Descripcion())
 		ajustarVisibles(v.programa.Modo)
 		v.app.guardarPrograma(v.programa)
@@ -143,18 +161,19 @@ func (v *vistaSincronizacion) cuadroPrograma() fyne.CanvasObject {
 	modo.SetSelected(etiquetaDe(v.programa.Modo))
 	minutos.OnChanged = func(string) { guardar() }
 	hora.OnChanged = func(string) { guardar() }
+	copia.OnChanged = func(bool) { guardar() }
 	borrados.OnChanged = func(bool) { guardar() }
 	ajustarVisibles(v.programa.Modo)
 
 	return container.NewVBox(
 		widget.NewLabelWithStyle("Cuándo sincronizar", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		modo, filaMinutos, filaHora, borrados, resumen,
+		modo, filaMinutos, filaHora, borrados, copia, resumen,
 	)
 }
 
 func clavesOrdenadas(m map[string]sincro.Modo) []string {
-	// Orden fijo: de menos a más automático.
-	return []string{"Solo a mano", "Cada tantos minutos", "Todos los días a una hora"}
+	// El modo por defecto aparece primero.
+	return []string{"Automático", "Solo a mano", "Cada tantos minutos", "Todos los días a una hora"}
 }
 
 // ---------- acciones ----------
@@ -219,6 +238,12 @@ func (v *vistaSincronizacion) registrar() {
 // sincronizar hace una pasada. subir=false solo trae lo del servidor.
 func (v *vistaSincronizacion) sincronizar(subir bool) {
 	if v.corriendo {
+		v.pendienteAutomatico = false
+		v.pendiente = true
+		v.pendienteSubir = v.pendienteSubir || subir
+		return
+	}
+	if !v.app.ses.Abierta() {
 		return
 	}
 	carpeta := v.programa.Carpeta
@@ -232,30 +257,37 @@ func (v *vistaSincronizacion) sincronizar(subir bool) {
 	v.corriendo = true
 	v.estadoTxt.SetText("Sincronizando…")
 	propagarBorrados := v.programa.PropagarBorrados
+	sinCopiaLocal := v.programa.SinCopiaLocal
+	generacion := v.app.generacionSincro
+	ctx, cancelar := context.WithTimeout(context.Background(), time.Hour)
+	v.cancelar = cancelar
 
 	go func() {
 		// Una carpeta grande puede tardar: plazo amplio y propio.
-		ctx, cancelar := context.WithTimeout(context.Background(), time.Hour)
 		defer cancelar()
 
 		cli, err := v.app.sincro()
 		if err != nil {
 			fyne.Do(func() {
-				v.corriendo = false
+				defer v.terminarPasada()
 				v.estadoTxt.SetText("No se pudo conectar con File Sync: " + err.Error())
 			})
 			return
 		}
 		lineas := make([]string, 0, 32)
 		r := cli.Sincronizar(ctx, st, carpeta, sincro.Opciones{
-			Subir:  subir,
-			Borrar: subir && propagarBorrados,
-			Aviso:  func(l string) { lineas = append(lineas, l) },
+			SinCopiaLocal: sinCopiaLocal,
+			Subir:         subir,
+			Borrar:        subir && propagarBorrados,
+			Aviso:         func(l string) { lineas = append(lineas, l) },
 		})
 		errGuardar := st.Guardar()
 
 		fyne.Do(func() {
-			v.corriendo = false
+			defer v.terminarPasada()
+			if generacion != v.app.generacionSincro {
+				return
+			}
 			for _, l := range lineas {
 				v.escribir(l)
 			}
@@ -404,4 +436,30 @@ func oGuion(s string) string {
 		return "nunca"
 	}
 	return fecha(s)
+}
+
+func (v *vistaSincronizacion) terminarPasada() {
+	v.corriendo = false
+	v.cancelar = nil
+	if v.pendiente {
+		subir := v.pendienteSubir
+		automatico := v.pendienteAutomatico
+		v.pendienteAutomatico = false
+		v.pendiente, v.pendienteSubir = false, false
+		if automatico && (v.app.vigia == nil || !v.app.vigia.EnRed()) {
+			return
+		}
+		v.sincronizar(subir)
+	}
+}
+
+func (v *vistaSincronizacion) mostrarRed(dentro bool) {
+	switch {
+	case v.programa.Modo != sincro.Automatico:
+		v.redTxt.SetText("")
+	case dentro:
+		v.redTxt.SetText("Conectado a la red de la UPB")
+	default:
+		v.redTxt.SetText("Fuera de la red de la UPB: se sincronizará al volver")
+	}
 }

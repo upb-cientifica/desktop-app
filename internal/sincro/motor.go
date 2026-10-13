@@ -90,9 +90,10 @@ func (r Resumen) String() string {
 
 // Opciones de una pasada.
 type Opciones struct {
-	Subir      bool // false = solo traer del servidor
-	Borrar     bool // propagar los borrados locales
-	Comentario string
+	SinCopiaLocal bool // no bajar archivos que el equipo no tenga
+	Subir         bool // false = solo traer del servidor
+	Borrar        bool // propagar los borrados locales
+	Comentario    string
 	// Aviso recibe una línea por archivo tratado, para la bitácora de la
 	// ventana. Puede ser nil.
 	Aviso func(string)
@@ -186,6 +187,9 @@ func (c *Cliente) Sincronizar(ctx context.Context, st *EstadoLocal, dir string, 
 			} else if conocido {
 				delete(st.Entries, rel)
 			}
+			continue
+		}
+		if !debeBajar(op.SinCopiaLocal, hayLocal, conocido) {
 			continue
 		}
 		if conocido && previo.Version >= e.GetVersion() {
@@ -322,7 +326,7 @@ func escanear(dir string) map[string]infoLocal {
 			}
 			return nil
 		}
-		if d.Name() == archivoEstado || d.Name() == ".DS_Store" {
+		if ignorarArchivo(d.Name()) {
 			return nil
 		}
 		rel, err := filepath.Rel(dir, p)
@@ -357,4 +361,10 @@ func hashDe(p string) (string, int64, error) {
 		return "", 0, err
 	}
 	return hex.EncodeToString(h.Sum(nil)), n, nil
+}
+
+// debeBajar decide si una entrada del servidor puede bajar al equipo: sin copia
+// local, solo se actualiza lo que ya está aquí o ya se conocía.
+func debeBajar(sinCopiaLocal, hayLocal, conocido bool) bool {
+	return !sinCopiaLocal || hayLocal || conocido
 }

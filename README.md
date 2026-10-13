@@ -79,11 +79,27 @@ herramientas pueden turnarse sobre el mismo directorio).
 
 Cuándo se sincroniza, según el §3.3 del enunciado:
 
+- **Automático (por defecto)**: al conectarte a la red de la UPB, por cable o
+  Wi-Fi, y cada vez que cambie un archivo. Comprueba por TCP el servidor File
+  Sync configurado (`UPB_SINCRO_ADDR`) cada 20 segundos, con un plazo de 2
+  segundos. Agrupa los cambios locales durante 3 segundos y consulta cambios
+  de otros equipos cada 2 minutos mientras está conectado. Vigila también las
+  subcarpetas nuevas; ignora el estado local y los archivos temporales.
+  Al cambiar de modo o carpeta, o cerrar sesión, se detiene el vigía anterior.
+  Las pasadas son secuenciales: si llegan varios disparos durante una, queda
+  una sola pasada pendiente. La bitácora muestra también las automáticas.
 - **Solo a mano**, con el botón.
 - **Cada tantos minutos.**
 - **Todos los días a una hora**, que es el "horario establecido" que pide el
   enunciado. Corre aunque la sección esté cerrada, mientras la aplicación siga
   abierta y la sesión viva.
+
+Los archivos quedan en **Mi unidad › Sincronizados**. La opción **Guardar en
+este equipo una copia de todo lo sincronizado** está activada por defecto.
+Al desactivarla, los archivos nuevos del servidor que este equipo no tiene ni
+conoce permanecen solo allí; los archivos locales o conocidos siguen
+actualizándose y se aplican los borrados. Las subidas no cambian. La etiqueta
+de red indica si se puede sincronizar o se espera la reconexión.
 
 Los conflictos (dos equipos tocaron el mismo archivo) se resuelven eligiendo la
 versión del servidor, la del equipo, o conservando las dos: la copia local se

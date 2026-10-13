@@ -37,9 +37,14 @@ type App struct {
 	// trabajos MPI para abrir sus resultados).
 	abrirEnMiUnidad func(ruta string)
 
-	mu          sync.Mutex
-	sincroCli   *sincro.Cliente
-	programador *sincro.Programador
+	mu               sync.Mutex
+	sincroCli        *sincro.Cliente
+	programador      *sincro.Programador
+	vigia            *sincro.Vigia
+	vigiaCarpeta     string
+	generacionSincro int
+	vistaSincro      *vistaSincronizacion
+	contenidoSincro  fyne.CanvasObject
 }
 
 func Nueva(cfg config.Config, cli *bus.Cliente, ses *sesion.Sesion) *App {
@@ -86,6 +91,7 @@ func (a *App) Ejecutar() {
 		})
 	}()
 
+	a.win.SetOnClosed(a.detenerSincronizacion)
 	a.win.ShowAndRun()
 }
 
@@ -172,12 +178,51 @@ func (a *App) guardarPrograma(p sincro.Programa) {
 		return
 	}
 	a.arrancarProgramador().Aplicar(p)
+	if a.vigia != nil && (p.Modo != sincro.Automatico || a.vigiaCarpeta != p.Carpeta) {
+		a.vigia.Detener()
+		a.vigia = nil
+		a.generacionSincro++
+		if a.vistaSincro != nil {
+			a.vistaSincro.pendiente = false
+			a.vistaSincro.pendienteSubir = false
+			if a.vistaSincro.cancelar != nil {
+				a.vistaSincro.cancelar()
+			}
+		}
+	}
+	if p.Modo == sincro.Automatico && a.vigia == nil && a.ses.Abierta() {
+		generacion := a.generacionSincro
+		v, err := sincro.NuevoVigia(p.Carpeta, a.cfg.SincroAddr, nil, func() {
+			fyne.Do(func() {
+				if generacion == a.generacionSincro && a.ses.Abierta() && a.vigia != nil && a.vigia.EnRed() {
+					a.pasadaProgramada()
+				}
+			})
+		}, func(dentro bool) {
+			fyne.Do(func() {
+				if generacion == a.generacionSincro && a.vistaSincro != nil {
+					a.vistaSincro.mostrarRed(dentro)
+				}
+			})
+		})
+		if err != nil {
+			a.error(err)
+			return
+		}
+		a.vigia, a.vigiaCarpeta = v, p.Carpeta
+	}
+	if a.vistaSincro != nil {
+		a.vistaSincro.mostrarRed(a.vigia != nil && a.vigia.EnRed())
+	}
 }
 
 // marcarSincronizacion recuerda que acaba de correr una pasada, para que el
 // horario no la repita.
 func (a *App) marcarSincronizacion() {
 	p := a.arrancarProgramador().MarcarEjecucion(time.Now())
+	if a.vistaSincro != nil {
+		a.vistaSincro.programa.UltimaEjecucion = p.UltimaEjecucion
+	}
 	_ = sincro.GuardarPrograma(a.cfg.DirDatos, p)
 }
 
@@ -190,25 +235,49 @@ func (a *App) arrancarProgramador() *sincro.Programador {
 	return a.programador
 }
 
-// sincronizacionProgramada es la pasada que dispara el horario, sin que nadie
-// esté mirando la ventana. Lo que ocurra queda en el estado de la carpeta y se
-// ve al abrir la sección.
+// Las pasadas usan la misma cola y la misma bitácora que el botón manual.
 func (a *App) sincronizacionProgramada() {
+	fyne.Do(func() {
+		if a.programador != nil && a.programador.Toca(time.Now()) {
+			a.pasadaProgramada()
+		}
+	})
+}
+
+func (a *App) pasadaProgramada() {
 	if !a.ses.Abierta() {
 		return
 	}
-	p := sincro.CargarPrograma(a.cfg.DirDatos, defaultCarpetaSincro())
-	st := sincro.CargarEstado(p.Carpeta)
-	if !st.Registrado() {
+	a.vistaSincronizacion()
+	if !sincro.CargarEstado(a.vistaSincro.programa.Carpeta).Registrado() {
 		return
 	}
-	cli, err := a.sincro()
-	if err != nil {
+	if a.vistaSincro.corriendo {
+		if !a.vistaSincro.pendiente {
+			a.vistaSincro.pendienteAutomatico = a.vistaSincro.programa.Modo == sincro.Automatico
+		}
+		a.vistaSincro.pendiente = true
+		a.vistaSincro.pendienteSubir = true
 		return
 	}
-	ctx, cancelar := context.WithTimeout(context.Background(), time.Hour)
-	defer cancelar()
-	cli.Sincronizar(ctx, st, p.Carpeta, sincro.Opciones{Subir: true, Borrar: p.PropagarBorrados})
-	_ = st.Guardar()
-	a.marcarSincronizacion()
+	a.vistaSincro.sincronizar(true)
+}
+
+func (a *App) detenerSincronizacion() {
+	a.generacionSincro++
+	if a.vigia != nil {
+		a.vigia.Detener()
+		a.vigia = nil
+	}
+	if a.programador != nil {
+		a.programador.Detener()
+	}
+	if a.vistaSincro != nil {
+		a.vistaSincro.pendiente = false
+		if a.vistaSincro.cancelar != nil {
+			a.vistaSincro.cancelar()
+		}
+	}
+	// La vista es de la cuenta que cerró sesión: la siguiente se arma de nuevo.
+	a.vistaSincro, a.contenidoSincro = nil, nil
 }

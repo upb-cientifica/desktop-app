@@ -1,6 +1,7 @@
 package sincro
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -68,5 +69,36 @@ func TestDescripcion(t *testing.T) {
 	}
 	if got := (Programa{Modo: Diario, Hora: "07:30"}).Descripcion(); got != "Todos los días a las 07:30" {
 		t.Fatalf("descripción: %q", got)
+	}
+}
+
+func TestAutomaticoLoGobiernaElVigia(t *testing.T) {
+	p := ProgramaPorDefecto(t.TempDir())
+	if p.Modo != Automatico || p.SinCopiaLocal {
+		t.Fatal("por defecto: automático y copia completa")
+	}
+	if Toca(p, enPunto(20, 0)) {
+		t.Fatal("el reloj no gobierna automático")
+	}
+	if p.Descripcion() != "Automático: al conectarte a la red de la UPB y cada vez que cambie un archivo" {
+		t.Fatal(p.Descripcion())
+	}
+}
+
+func TestProgramaGuardadoCompatible(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(rutaPrograma(dir), []byte(`{"modo":"manual","carpeta":"documentos"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := CargarPrograma(dir, "otra")
+	if p.Modo != Manual || p.SinCopiaLocal || p.Carpeta != "documentos" {
+		t.Fatalf("programa anterior alterado: %+v", p)
+	}
+	p.Modo, p.SinCopiaLocal = Automatico, true
+	if err := GuardarPrograma(dir, p); err != nil {
+		t.Fatal(err)
+	}
+	if got := CargarPrograma(dir, "otra"); got != p {
+		t.Fatalf("no conserva las preferencias: %+v", got)
 	}
 }

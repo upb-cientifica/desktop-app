@@ -23,6 +23,7 @@ func (a *App) mostrarCargando(texto string) {
 
 // mostrarEntrada pide cuenta y contraseña al Servicio de Usuarios.
 func (a *App) mostrarEntrada() {
+	a.detenerSincronizacion()
 	cuenta := widget.NewEntry()
 	cuenta.SetPlaceHolder("tu.cuenta o correo@" + bus.DominioCorreo)
 	cuenta.SetText(a.ses.CorreoRecordado())
