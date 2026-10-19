@@ -1,10 +1,14 @@
 package bus
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -60,5 +64,67 @@ func TestNoReintentaUnErrorDelServicio(t *testing.T) {
 	}
 	if n := atomic.LoadInt32(&intentos); n != 1 {
 		t.Fatalf("no debía reintentarse, hubo %d intentos", n)
+	}
+}
+
+// Descargar una carpeta: el servicio responde un ZIP sin longitud (por trozos).
+// El cliente debe pedir la ruta correcta, no mandar el propietario vacío y
+// entregar el cuerpo completo.
+func TestDescargarArchivoEntregaElCuerpoCompleto(t *testing.T) {
+	cuerpo := bytes.Repeat([]byte("PK-datos-"), 50_000) // ~450 KB, varios trozos
+	var consulta url.Values
+	var ruta, autorizacion string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ruta, consulta, autorizacion = r.URL.Path, r.URL.Query(), r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", `attachment; filename="Proyecto.zip"; filename*=UTF-8''Proyecto.zip`)
+		for i := 0; i < len(cuerpo); i += 64 * 1024 {
+			fin := min(i+64*1024, len(cuerpo))
+			w.Write(cuerpo[i:fin])
+			w.(http.Flusher).Flush() // fuerza Transfer-Encoding: chunked
+		}
+	}))
+	defer srv.Close()
+
+	c := NuevoCliente(srv.URL)
+	c.PonerToken("tok")
+	r, err := c.DescargarArchivo(context.Background(), "/Ñandú/Proyecto", "")
+	if err != nil {
+		t.Fatalf("no debería fallar: %v", err)
+	}
+	defer r.Close()
+	recibido, err := io.ReadAll(r)
+	if err != nil || !bytes.Equal(recibido, cuerpo) {
+		t.Fatalf("cuerpo incompleto: %d de %d bytes (%v)", len(recibido), len(cuerpo), err)
+	}
+	if ruta != "/shared_file/files/download" || consulta.Get("ruta") != "/Ñandú/Proyecto" {
+		t.Fatalf("petición inesperada: %s %v", ruta, consulta)
+	}
+	if _, hay := consulta["propietario"]; hay {
+		t.Fatalf("el propietario vacío no debe viajar: %v", consulta)
+	}
+	if autorizacion != "Bearer tok" {
+		t.Fatalf("falta el token: %q", autorizacion)
+	}
+}
+
+// Los errores del servicio —como «la carpeta no está vacía» al vaciar la
+// papelera— llegan con su mensaje, no como un código mudo.
+func TestEliminarDefinitivoMuestraElMensajeDelServicio(t *testing.T) {
+	var consulta url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		consulta = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error":{"codigo":"PROHIBIDO","mensaje":"sin permiso de escritura sobre /Viejo/a.txt"}}`))
+	}))
+	defer srv.Close()
+
+	err := NuevoCliente(srv.URL).Eliminar(context.Background(), "/Viejo", true)
+	if err == nil || !strings.Contains(err.Error(), "sin permiso de escritura sobre /Viejo/a.txt") {
+		t.Fatalf("el mensaje del servicio se perdió: %v", err)
+	}
+	if consulta.Get("definitivo") != "true" || consulta.Get("ruta") != "/Viejo" {
+		t.Fatalf("parámetros inesperados: %v", consulta)
 	}
 }

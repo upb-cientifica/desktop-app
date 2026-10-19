@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -300,7 +301,9 @@ func (v *vistaDeArchivos) acciones(n bus.Nodo) {
 		añadir("Restaurar", theme.ViewRestoreIcon(), func() { v.restaurar(n) })
 		añadir("Eliminar definitivamente", theme.DeleteIcon(), func() { v.eliminar(n, true) })
 	} else {
-		if !n.EsCarpeta {
+		if n.EsCarpeta {
+			añadir("Descargar como ZIP", theme.DownloadIcon(), func() { v.descargar(n) })
+		} else {
 			añadir("Descargar", theme.DownloadIcon(), func() { v.descargar(n) })
 			añadir("Ver versiones", theme.HistoryIcon(), func() { v.versiones(n) })
 		}
@@ -355,12 +358,23 @@ func (v *vistaDeArchivos) subir() {
 	}, v.app.win)
 }
 
+// descargar guarda en el equipo un archivo o una carpeta; el servicio entrega
+// la carpeta como ZIP. El cuadro de guardado ya propone el nombre: sin él había
+// que escribirlo a mano y, con el campo vacío, «Guardar» no hacía nada.
 func (v *vistaDeArchivos) descargar(n bus.Nodo) {
-	dialog.ShowFileSave(func(escritor fyne.URIWriteCloser, err error) {
-		if err != nil || escritor == nil {
+	nombre := n.Nombre
+	if n.EsCarpeta {
+		nombre += ".zip"
+	}
+	guardar := dialog.NewFileSave(func(escritor fyne.URIWriteCloser, err error) {
+		if err != nil {
+			v.app.error(err)
 			return
 		}
-		progreso := dialog.NewCustomWithoutButtons("Descargando "+n.Nombre,
+		if escritor == nil {
+			return // canceló
+		}
+		progreso := dialog.NewCustomWithoutButtons("Descargando "+nombre,
 			widget.NewProgressBarInfinite(), v.app.win)
 		progreso.Show()
 
@@ -379,10 +393,12 @@ func (v *vistaDeArchivos) descargar(n bus.Nodo) {
 					v.app.error(err)
 					return
 				}
-				dialog.ShowInformation("Descargado", n.Nombre+" quedó en tu equipo.", v.app.win)
+				dialog.ShowInformation("Descargado", nombre+" quedó guardado en:\n"+escritor.URI().Path(), v.app.win)
 			})
 		}()
 	}, v.app.win)
+	guardar.SetFileName(nombre)
+	guardar.Show()
 }
 
 func (v *vistaDeArchivos) nuevaCarpeta() {
@@ -454,10 +470,17 @@ func (v *vistaDeArchivos) vaciarPapelera() {
 			}
 			nodos := append([]bus.Nodo{}, v.nodos...)
 			enSegundoPlano(func(ctx context.Context) (struct{}, error) {
+				// Un elemento que no se pueda borrar no detiene a los demás.
+				var fallidos []string
+				var ultimo error
 				for _, n := range nodos {
 					if err := v.app.cli.Eliminar(ctx, n.Ruta, true); err != nil {
-						return struct{}{}, err
+						fallidos = append(fallidos, n.Nombre)
+						ultimo = err
 					}
+				}
+				if len(fallidos) > 0 {
+					return struct{}{}, fmt.Errorf("no se pudo eliminar %s: %w", strings.Join(fallidos, ", "), ultimo)
 				}
 				return struct{}{}, nil
 			}, func(_ struct{}, err error) { v.trasCambiar(bus.Nodo{}, err) })
